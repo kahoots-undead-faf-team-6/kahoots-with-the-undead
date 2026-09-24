@@ -1,0 +1,455 @@
+{
+  "info": {
+    "name": "Zombie Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3002"
+    },
+    {
+      "key": "zombieTypeId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Zombie Type",
+      "item": [
+        {
+          "name": "Create Zombie Type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Professor\",\n  \"description\": \"Asks deadly questions\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('zombieTypeId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Zombie Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Zombie Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Zombie Type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Professor\",\n  \"description\": \"Updated\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Zombie Type",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Patched\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter by name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types?name=Professor",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "Professor"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter by behavior",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types?behaviorMode=guard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types"
+              ],
+              "query": [
+                {
+                  "key": "behaviorMode",
+                  "value": "guard"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "stats"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch stats",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"health\": 200\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "stats"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get behavior",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/behavior",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "behavior"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace behavior",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"chase\",\n  \"aggressiveness\": 0.9,\n  \"fleeHealthPercent\": 0,\n  \"groupsUp\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/behavior",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "behavior"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get sprite",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/sprite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "sprite"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace sprite",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"sprites/professor-v2.png\",\n  \"frameWidth\": 48,\n  \"frameHeight\": 48\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/sprite",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "sprite"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List abilities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/abilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "abilities"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add ability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grade Curse\",\n  \"description\": \"Lowers player stats\",\n  \"cooldownSeconds\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/abilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "abilities"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove ability",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}/abilities/Grade%20Curse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}",
+                "abilities",
+                "Grade%20Curse"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Zombie Type",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types/{{zombieTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types",
+                "{{zombieTypeId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
