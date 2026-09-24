@@ -1,0 +1,6 @@
+[submodule "services/world-service"]
+	path = services/world-service
+	url = https://github.com/kahoots-undead-faf-team-6/world-service.git
+[submodule "services/zombie-service"]
+	path = services/zombie-service
+	url = https://github.com/kahoots-undead-faf-team-6/zombie-service.git
