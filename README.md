@@ -90,7 +90,7 @@ graph TD
 
 ### World Service
 
-Bodies are JSON. Validation errors return `400 {"error":"validation_error","details":[...]}`, unknown ids return `404 {"error":"not_found"}`.
+Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }` (`VALIDATION_ERROR` 400, `NOT_FOUND` 404, `EXAM_NOT_VERIFIED` 422, `INTERNAL_ERROR` 500).
 
 #### Health
 
@@ -118,8 +118,8 @@ Every resource below supports the same five operations:
 | `/zones` | `name`, `description?`, `dangerLevel` (0-10) | - |
 | `/resource-nodes` | `roomId`, `resourceType` (`metal_scraps` `paper` `food` `textbooks`), `quantity`, `respawnSeconds?` | `roomId`, `resourceType`, `available=true` |
 | `/barricades` | `roomId`, `health`, `maxHealth` | `roomId` |
-| `/spawn-configs` | `roomId`, `zombieType` (name in Zombie Service), `maxZombies`, `intervalSeconds`, `active?` | `roomId`, `zombieType` |
-| `/wings` | `name`, `unlocked?`, `requiredExamId?` | - |
+| `/spawn-configs` | `roomId`, `zombieType` (`code` from Zombie Service, e.g. `PROFESSOR`), `maxZombies`, `intervalSeconds`, `active?` | `roomId`, `zombieType` |
+| `/wings` | `name`, `unlocked?`, `requiredCourseId?` | - |
 
 #### Map queries and actions
 
@@ -130,18 +130,18 @@ Every resource below supports the same five operations:
 | `GET` | `/resource-nodes?available=true` | - | `200 [nodes]` with quantity > 0 in available rooms |
 | `GET` | `/spawn-points` | - | `200 [spawnConfigs]` active, in available rooms |
 | `POST` | `/wings/{id}/unlock` | - | `200 { "wing": {...}, "alreadyUnlocked": false }`, `404` |
-| `POST` | `/events/exam-passed` | `{ "playerId": "uuid", "examId": "uuid", "wingId": "uuid" }` | `200 { "wing": {...}, "alreadyUnlocked": bool }`, `400`, `404`, `422` |
+| `POST` | `/events/exam-passed` | `{ "playerId": "uuid", "courseId": "uuid", "category": "MIDTERM", "grade": 8.5 }` | `200 { "unlocked": [wing], "alreadyUnlocked": [wing] }` (empty lists when no wing needs that course), `400`, `422` |
 
-`POST /events/exam-passed` is sent by the Exam Service. In Lab 1 the Exam Service is mocked behind `ExamServiceClient` (`src/clients/examClient.ts`) and replaced by a real HTTP client in Lab 2.
+`POST /events/exam-passed` is sent by the Exam Service (payload as agreed in the contract). Every wing whose `requiredCourseId` equals the `courseId` is unlocked; repeats are idempotent. In Lab 1 the Exam Service is mocked behind `ExamServiceClient` (`src/clients/examClient.ts`) and replaced by a real HTTP client in Lab 2.
 
 ### Zombie Service
 
-Bodies are JSON. Validation errors return `400 {"error":"validation_error","details":[...]}`, unknown ids `404`, duplicate names `409`.
+Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATION_ERROR` 400, `NOT_FOUND` 404, `CONFLICT` 409 (duplicate name or code), `INTERNAL_ERROR` 500.
 
 | Method | Path | Request | Response |
 |---|---|---|---|
 | `GET` | `/health` | - | `200 { "status": "ok", "service": "zombie-service" }` |
-| `GET` | `/zombie-types` | query `name`, `behaviorMode` (optional) | `200 [ zombieType ]` |
+| `GET` | `/zombie-types` | query `name`, `code`, `behaviorMode` (optional) | `200 [ zombieType ]` |
 | `POST` | `/zombie-types` | full zombie type | `201 zombieType`, `400`, `409` |
 | `GET` | `/zombie-types/{id}` | - | `200 zombieType`, `404` |
 | `PUT` | `/zombie-types/{id}` | full zombie type | `200 zombieType`, `400`, `404`, `409` |
@@ -204,8 +204,8 @@ git submodule update --init --recursive
 | Player Service | _TBD_ | _TBD_ |
 | Game Service | _TBD_ | _TBD_ |
 | Exam Service | _TBD_ | _TBD_ |
-| World Service | https://hub.docker.com/r/mihaim888/world-service (`mihaim888/world-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/world-service |
-| Zombie Service | https://hub.docker.com/r/mihaim888/zombie-service (`mihaim888/zombie-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/zombie-service |
+| World Service | https://hub.docker.com/r/mihaim888/world-service (`mihaim888/world-service:2.0.0`) | https://github.com/kahoots-undead-faf-team-6/world-service |
+| Zombie Service | https://hub.docker.com/r/mihaim888/zombie-service (`mihaim888/zombie-service:2.0.0`) | https://github.com/kahoots-undead-faf-team-6/zombie-service |
 | Resource Service | _TBD_ | _TBD_ |
 | Base Service | _TBD_ | _TBD_ |
 | Crafting Service | _TBD_ | _TBD_ |
@@ -213,9 +213,10 @@ git submodule update --init --recursive
 ### Run requirements (World + Zombie)
 
 - Node.js 22+ for `run.sh`, or Docker for the images.
-- World Service: port `3001`; Zombie Service: port `3002`. Env vars: `PORT`, `STORAGE` (`memory`|`mongo`), `MONGO_URI`, `MONGO_DB` (see each repo's `.env.example`).
-- MongoDB 7 with a named volume; credentials only in `deploy/.env` (see `deploy/.env.example`).
+- World Service: port `3011`; Zombie Service: port `3012` (Game and Exam use 3001 and 3002). Env vars: `PORT`, `STORAGE` (`memory`|`mongo`), `MONGO_URI`, `MONGO_DB` (see each repo's `.env.example`).
+- MongoDB 7 with a named volume; credentials only in `deploy/.env` (see `deploy/.env.example`). Host ports: World DB `27011`, Zombie DB `27012`.
 - Seed once with `db-scripts/world-service/seed.js` and `db-scripts/zombie-service/seed.js` (they skip if the DB is not empty).
+- Run everything: `cd deploy && cp .env.example .env && docker compose up -d`.
 
 ## 8. Postman Collections
 
