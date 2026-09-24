@@ -204,8 +204,8 @@ git submodule update --init --recursive
 | Player Service | _TBD_ | _TBD_ |
 | Game Service | _TBD_ | _TBD_ |
 | Exam Service | _TBD_ | _TBD_ |
-| World Service | _TBD_ (`<dockerhub-user>/world-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/world-service |
-| Zombie Service | _TBD_ (`<dockerhub-user>/zombie-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/zombie-service |
+| World Service | https://hub.docker.com/r/mihaim888/world-service (`mihaim888/world-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/world-service |
+| Zombie Service | https://hub.docker.com/r/mihaim888/zombie-service (`mihaim888/zombie-service:1.0.0`) | https://github.com/kahoots-undead-faf-team-6/zombie-service |
 | Resource Service | _TBD_ | _TBD_ |
 | Base Service | _TBD_ | _TBD_ |
 | Crafting Service | _TBD_ | _TBD_ |
