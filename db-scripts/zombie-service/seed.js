@@ -4,28 +4,28 @@ const { randomUUID } = require('crypto');
 
 const zombieTypes = () => [
   {
-    name: 'Professor', description: 'Blocks corridors and asks deadly exam questions',
+    code: 'PROFESSOR', name: 'Professor', description: 'Blocks corridors and asks deadly exam questions',
     stats: { speed: 1.0, health: 150, attack: 20, perceptionRadius: 8 },
     behavior: { mode: 'guard', aggressiveness: 0.8, fleeHealthPercent: 0, groupsUp: false },
     sprite: { url: 'sprites/professor.png', frameWidth: 32, frameHeight: 32 },
     abilities: [{ name: 'Pop Quiz', description: 'Stuns the player and starts an exam', cooldownSeconds: 20 }],
   },
   {
-    name: 'Tourist', description: 'Wanders around taking photos, attacks when startled',
+    code: 'TOURIST', name: 'Tourist', description: 'Wanders around taking photos, attacks when startled',
     stats: { speed: 1.5, health: 60, attack: 8, perceptionRadius: 5 },
     behavior: { mode: 'wander', aggressiveness: 0.3, fleeHealthPercent: 30, groupsUp: true },
     sprite: { url: 'sprites/tourist.png', frameWidth: 32, frameHeight: 32 },
     abilities: [{ name: 'Camera Flash', description: 'Briefly blinds the player', cooldownSeconds: 15 }],
   },
   {
-    name: 'Overworked Student', description: 'Fast and reckless after an all-nighter',
+    code: 'OVERWORKED_STUDENT', name: 'Overworked Student', description: 'Fast and reckless after an all-nighter',
     stats: { speed: 2.5, health: 40, attack: 12, perceptionRadius: 10 },
     behavior: { mode: 'chase', aggressiveness: 1, fleeHealthPercent: 0, groupsUp: true },
     sprite: { url: 'sprites/student.png', frameWidth: 32, frameHeight: 32 },
     abilities: [{ name: 'Caffeine Rush', description: 'Doubles speed for a few seconds', cooldownSeconds: 25 }],
   },
   {
-    name: 'Dean', description: 'Slow boss that ambushes players in sealed wings',
+    code: 'DEAN', name: 'Dean', description: 'Slow boss that ambushes players in sealed wings',
     stats: { speed: 0.8, health: 400, attack: 35, perceptionRadius: 12 },
     behavior: { mode: 'ambush', aggressiveness: 0.9, fleeHealthPercent: 0, groupsUp: false },
     sprite: { url: 'sprites/dean.png', frameWidth: 48, frameHeight: 48 },

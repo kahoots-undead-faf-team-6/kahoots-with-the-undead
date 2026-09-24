@@ -6,7 +6,7 @@ const COLLECTIONS = ['wings', 'rooms', 'corridors', 'zones', 'resource_nodes', '
 
 function buildData() {
   const id = () => randomUUID();
-  const wingEast = { _id: id(), name: 'East Wing', unlocked: false, requiredExamId: 'exam-algorithms' };
+  const wingEast = { _id: id(), name: 'East Wing', unlocked: false, requiredCourseId: 'course-algorithms' };
   const zoneSafe = { _id: id(), name: 'Safe Zone', description: 'Around FAF Cab', dangerLevel: 1 };
   const zoneMain = { _id: id(), name: 'Main Building', description: 'Public rooms', dangerLevel: 4 };
   const zoneEast = { _id: id(), name: 'East Wing Zone', description: 'Sealed until an exam is passed', dangerLevel: 8 };
@@ -35,7 +35,7 @@ function buildData() {
 
   const barricades = [{ _id: id(), roomId: cab._id, health: 100, maxHealth: 100 }];
   const spawn = (r, zombieType, maxZombies, intervalSeconds) => ({ _id: id(), roomId: r._id, zombieType, maxZombies, intervalSeconds, active: true });
-  const spawnConfigs = [spawn(canteen, 'Tourist', 3, 60), spawn(lab, 'Professor', 1, 120), spawn(class1, 'Overworked Student', 4, 45), spawn(server, 'Dean', 1, 300)];
+  const spawnConfigs = [spawn(canteen, 'TOURIST', 3, 60), spawn(lab, 'PROFESSOR', 1, 120), spawn(class1, 'OVERWORKED_STUDENT', 4, 45), spawn(server, 'DEAN', 1, 300)];
 
   return {
     wings: [wingEast],
