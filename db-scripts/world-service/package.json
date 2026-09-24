@@ -1,0 +1,7 @@
+{
+  "name": "world-service-seed",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "seed": "node seed.js" },
+  "dependencies": { "mongodb": "^6.12.0" }
+}
