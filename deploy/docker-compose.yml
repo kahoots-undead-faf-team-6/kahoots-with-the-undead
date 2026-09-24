@@ -10,7 +10,7 @@ services:
     volumes:
       - world-mongo-data:/data/db
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:27011:27017"
 
   zombie-mongo:
     image: mongo:7
@@ -21,35 +21,35 @@ services:
     volumes:
       - zombie-mongo-data:/data/db
     ports:
-      - "127.0.0.1:27018:27017"
+      - "127.0.0.1:27012:27017"
 
   world-service:
-    image: ${DOCKERHUB_USER}/world-service:1.0.0
+    image: ${DOCKERHUB_USER}/world-service:2.0.0
     restart: unless-stopped
     env_file: .env
     environment:
-      PORT: "3001"
+      PORT: "3011"
       STORAGE: mongo
       MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
       MONGO_DB: world
     depends_on:
       - world-mongo
     ports:
-      - "3001:3001"
+      - "3011:3011"
 
   zombie-service:
-    image: ${DOCKERHUB_USER}/zombie-service:1.0.0
+    image: ${DOCKERHUB_USER}/zombie-service:2.0.0
     restart: unless-stopped
     env_file: .env
     environment:
-      PORT: "3002"
+      PORT: "3012"
       STORAGE: mongo
       MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
       MONGO_DB: zombie
     depends_on:
       - zombie-mongo
     ports:
-      - "3002:3002"
+      - "3012:3012"
 
 volumes:
   world-mongo-data:
