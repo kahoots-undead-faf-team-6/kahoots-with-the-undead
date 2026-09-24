@@ -1,0 +1,1335 @@
+{
+  "info": {
+    "name": "World Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3011"
+    },
+    {
+      "key": "roomId",
+      "value": ""
+    },
+    {
+      "key": "wingId",
+      "value": ""
+    },
+    {
+      "key": "corridorId",
+      "value": ""
+    },
+    {
+      "key": "zoneId",
+      "value": ""
+    },
+    {
+      "key": "nodeId",
+      "value": ""
+    },
+    {
+      "key": "barricadeId",
+      "value": ""
+    },
+    {
+      "key": "spawnId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Wing",
+      "item": [
+        {
+          "name": "Create Wing",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"East Wing\",\n  \"unlocked\": false,\n  \"requiredCourseId\": \"course-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('wingId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Wing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Wing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wings/{{wingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings",
+                "{{wingId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Wing",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"East Wing\",\n  \"unlocked\": false,\n  \"requiredCourseId\": \"course-2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wings/{{wingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings",
+                "{{wingId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Wing",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"East Wing (renamed)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wings/{{wingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings",
+                "{{wingId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unlock Wing",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wings/{{wingId}}/unlock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings",
+                "{{wingId}}",
+                "unlock"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Exam Passed event (mock Exam Service)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"11111111-1111-1111-1111-111111111111\",\n  \"courseId\": \"course-1\",\n  \"category\": \"MIDTERM\",\n  \"grade\": 8.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/exam-passed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "exam-passed"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Wing",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wings/{{wingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wings",
+                "{{wingId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Room",
+      "item": [
+        {
+          "name": "Create Room",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laboratory\",\n  \"type\": \"laboratory\",\n  \"wingId\": null,\n  \"zoneId\": null,\n  \"description\": \"Metal scraps live here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('roomId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Room",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Room",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms",
+                "{{roomId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Room",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laboratory\",\n  \"type\": \"laboratory\",\n  \"wingId\": null,\n  \"zoneId\": null,\n  \"description\": \"Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms",
+                "{{roomId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Room",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Patched\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms",
+                "{{roomId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Available Rooms",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms?available=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "available",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rooms by type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms?type=laboratory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "laboratory"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Room resource nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}/resource-nodes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms",
+                "{{roomId}}",
+                "resource-nodes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Room",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "rooms",
+                "{{roomId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Corridor",
+      "item": [
+        {
+          "name": "Create Corridor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromRoomId\": \"{{roomId}}\",\n  \"toRoomId\": \"{{roomId}}\",\n  \"locked\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corridors",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('corridorId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Corridor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/corridors",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Corridor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/corridors/{{corridorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors",
+                "{{corridorId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Corridor",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromRoomId\": \"{{roomId}}\",\n  \"toRoomId\": \"{{roomId}}\",\n  \"locked\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corridors/{{corridorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors",
+                "{{corridorId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Corridor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locked\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corridors/{{corridorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors",
+                "{{corridorId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Corridor",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/corridors/{{corridorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "corridors",
+                "{{corridorId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Zone",
+      "item": [
+        {
+          "name": "Create Zone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Danger Zone\",\n  \"description\": \"Lots of zombies\",\n  \"dangerLevel\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('zoneId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Zone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Zone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones",
+                "{{zoneId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Zone",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Danger Zone\",\n  \"description\": \"Even more\",\n  \"dangerLevel\": 9\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones",
+                "{{zoneId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Zone",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dangerLevel\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones",
+                "{{zoneId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Zone",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zones/{{zoneId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zones",
+                "{{zoneId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Resource Node",
+      "item": [
+        {
+          "name": "Create Resource Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"resourceType\": \"metal_scraps\",\n  \"quantity\": 20,\n  \"respawnSeconds\": 120\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('nodeId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Resource Node",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Resource Node",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes/{{nodeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes",
+                "{{nodeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Resource Node",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"resourceType\": \"metal_scraps\",\n  \"quantity\": 30,\n  \"respawnSeconds\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes/{{nodeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes",
+                "{{nodeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Resource Node",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes/{{nodeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes",
+                "{{nodeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Available Resource Nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes?available=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes"
+              ],
+              "query": [
+                {
+                  "key": "available",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Nodes by type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes?resourceType=paper",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes"
+              ],
+              "query": [
+                {
+                  "key": "resourceType",
+                  "value": "paper"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Resource Node",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-nodes/{{nodeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-nodes",
+                "{{nodeId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Barricade",
+      "item": [
+        {
+          "name": "Create Barricade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"health\": 50,\n  \"maxHealth\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/barricades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('barricadeId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Barricade",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/barricades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Barricade",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/barricades/{{barricadeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades",
+                "{{barricadeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Barricade",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"health\": 80,\n  \"maxHealth\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/barricades/{{barricadeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades",
+                "{{barricadeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Barricade",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"health\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/barricades/{{barricadeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades",
+                "{{barricadeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Barricade",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/barricades/{{barricadeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "barricades",
+                "{{barricadeId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Spawn Config",
+      "item": [
+        {
+          "name": "Create Spawn Config",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"zombieType\": \"PROFESSOR\",\n  \"maxZombies\": 3,\n  \"intervalSeconds\": 45,\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('spawnId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Spawn Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Spawn Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs/{{spawnId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs",
+                "{{spawnId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace Spawn Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"zombieType\": \"TOURIST\",\n  \"maxZombies\": 5,\n  \"intervalSeconds\": 30,\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs/{{spawnId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs",
+                "{{spawnId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Spawn Config",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs/{{spawnId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs",
+                "{{spawnId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Spawn Points",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/spawn-points",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-points"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Spawn Config",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/spawn-configs/{{spawnId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "spawn-configs",
+                "{{spawnId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
