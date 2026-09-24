@@ -79,14 +79,118 @@ graph TD
 
 ## 5. Communication Contract
 
-> _Each member fills in the endpoints of their services._ List every endpoint per service: method, path,
-> request body, response body, status codes. Example format below.
+### 5.1 Data management
+- **Database per service.** Every service owns its own database; no service reads another service's database directly.
+- **Access through APIs only.** Cross-service data is fetched through the REST endpoints below (and WebSockets for live Game updates).
+- **Event notifications.** State changes other services care about (e.g. `ExamPassed`) are sent as HTTP POST notifications to the owning service (to be replaced by a message broker in later labs if required).
+- **Idempotency.** Requests that award or consume something carry an id (`actionId`, `examId`) so retries never apply twice.
+- **Format.** JSON, UTF-8, ids are UUID strings, timestamps are ISO 8601 (UTC). Errors use `{ "error": "CODE", "message": "text" }`.
 
-### Example — Resource Service
+### 5.2 Game Service (owner: Alexandru Bujor) — port 3001
 
-| Endpoint | Method | Request | Response |
+| Method | Path | Request body | Success response |
 |---|---|---|---|
-| `/resources/{nodeId}/gather` | `POST` | `{ "playerId": "uuid", "actionId": "uuid" }` | `201 { "resourceType": "wood", "amount": 12 }` |
+| GET | `/health` | – | `200 { "status": "ok" }` |
+| POST | `/sessions` | `{ "name": "string", "maxPlayers": 4 }` | `201 Session` |
+| GET | `/sessions` | – | `200 Session[]` |
+| GET | `/sessions/{sessionId}` | – | `200 Session` |
+| POST | `/sessions/{sessionId}/join` | `{ "playerId": "uuid" }` | `200 Session` |
+| POST | `/sessions/{sessionId}/leave` | `{ "playerId": "uuid" }` | `200 Session` |
+| DELETE | `/sessions/{sessionId}` | – | `204` |
+| GET | `/sessions/{sessionId}/cycle` | – | `200 { "phase": "day" \| "night", "cycleNumber": 3, "endsAt": "ISO" }` |
+| POST | `/sessions/{sessionId}/actions` | `{ "playerId": "uuid", "type": "ActionType", "targetId": "uuid" }` | `202 Action` |
+| GET | `/sessions/{sessionId}/actions/{actionId}` | – | `200 Action` |
+| DELETE | `/sessions/{sessionId}/actions/{actionId}` | – | `200 Action` (status `cancelled`) |
+| POST | `/sessions/{sessionId}/encounters` | `{ "playerId": "uuid", "zombieId": "uuid" }` | `201 Encounter` |
+
+```json
+// Session
+{ "sessionId": "uuid", "name": "FAF Cab Survivors", "status": "waiting | active | finished",
+  "maxPlayers": 4, "players": ["uuid"], "createdAt": "ISO" }
+
+// ActionType: CHOP_BENCHES (600 s) | SCAVENGE_CANTEEN (300 s) | CLEAR_ROOM (180 s)
+//             | BARRICADE_ROOM (240 s) | REPAIR_BASE (300 s)
+// Action
+{ "actionId": "uuid", "sessionId": "uuid", "playerId": "uuid", "type": "SCAVENGE_CANTEEN",
+  "targetId": "uuid", "status": "in_progress | completed | cancelled",
+  "startedAt": "ISO", "endsAt": "ISO", "durationSec": 300 }
+
+// Encounter
+{ "encounterId": "uuid", "zombieType": "PROFESSOR | TOURIST",
+  "outcome": "EXAM_STARTED | RESOURCES_STOLEN | XP_STOLEN", "examId": "uuid | null" }
+```
+
+**WebSocket** `ws://<host>:3001/ws?sessionId=<uuid>&playerId=<uuid>` — server pushes:
+
+```json
+{ "event": "ACTION_PROGRESS",  "data": { "actionId": "uuid", "progress": 0.45 } }
+{ "event": "ACTION_COMPLETED", "data": { "actionId": "uuid", "type": "SCAVENGE_CANTEEN" } }
+{ "event": "CYCLE_CHANGED",    "data": { "phase": "night", "cycleNumber": 4 } }
+{ "event": "ZOMBIE_SPAWNED",   "data": { "zombieId": "uuid", "zombieType": "TOURIST", "roomId": "uuid" } }
+{ "event": "ZOMBIE_ATTACK",    "data": { "zombieId": "uuid", "playerId": "uuid", "outcome": "XP_STOLEN" } }
+```
+
+**Calls Game Service makes to other services** (to confirm with each owner):
+
+| Target | Call | Purpose |
+|---|---|---|
+| World | `GET /rooms?available=true`, `GET /rooms/{roomId}/resource-nodes`, `GET /spawn-points` | Where players can act, where zombies spawn |
+| Zombie | `GET /zombie-types` | Zombie configs for the cycle |
+| Resource | `POST /resources/gather { playerId, nodeId, actionId }` | Apply resources when an action completes (idempotent by `actionId`) |
+| Player | `GET /players/{playerId}`, `PATCH /players/{playerId}/xp { delta }` | Validate player, XP stolen/awarded |
+| Exam | `POST /exams` | Professor Zombie encounter |
+
+### 5.3 Exam Service (owner: Alexandru Bujor) — port 3002
+
+| Method | Path | Request body | Success response |
+|---|---|---|---|
+| GET | `/health` | – | `200 { "status": "ok" }` |
+| GET | `/courses` | – | `200 Course[]` |
+| POST | `/courses` | `{ "name": "Linear Algebra", "category": "MATH" }` | `201 Course` |
+| GET | `/courses/{courseId}` | – | `200 Course` |
+| DELETE | `/courses/{courseId}` | – | `204` |
+| GET | `/courses/{courseId}/questions` | – | `200 Question[]` (with `correctOption`, admin use) |
+| POST | `/courses/{courseId}/questions` | `{ "text": "string", "options": ["a","b","c","d"], "correctOption": 2 }` | `201 Question` |
+| POST | `/exams` | `{ "playerId": "uuid", "courseId": "uuid", "sessionId": "uuid", "zombieId": "uuid" }` | `201 Exam` |
+| GET | `/exams/{examId}` | – | `200 Exam` |
+| POST | `/exams/{examId}/submit` | `{ "answers": [ { "questionId": "uuid", "selectedOption": 1 } ] }` | `200 ExamResult` |
+| DELETE | `/exams/{examId}` | – | `200 Exam` (status `abandoned`) |
+| GET | `/players/{playerId}/exams?status=in_progress` | – | `200 Exam[]` |
+| GET | `/players/{playerId}/progress` | – | `200 Progress` |
+| GET | `/players/{playerId}/achievements` | – | `200 Achievement[]` |
+
+```json
+// Course
+{ "courseId": "uuid", "name": "Linear Algebra", "category": "MATH | PROGRAMMING | NETWORKS | HUMANITIES",
+  "questionCount": 5 }
+
+// Exam  (correct answers are never sent to the player)
+{ "examId": "uuid", "playerId": "uuid", "courseId": "uuid",
+  "status": "in_progress | passed | failed | abandoned", "attemptNumber": 1,
+  "questions": [ { "questionId": "uuid", "text": "string", "options": ["a","b","c","d"] } ],
+  "createdAt": "ISO", "expiresAt": "ISO" }
+
+// ExamResult  (grade on the 1-10 scale, pass mark 5)
+{ "examId": "uuid", "score": 4, "total": 5, "grade": 8, "passed": true, "attemptNumber": 1,
+  "unlockedAchievements": [ { "code": "SURVIVED_THE_PUMPKIN", "name": "Survived the Pumpkin" } ] }
+
+// Progress
+{ "playerId": "uuid", "coursesPassed": 3, "coursesTotal": 8, "averageGrade": 7.7,
+  "grades": [ { "courseId": "uuid", "grade": 8 } ], "diplomaProgress": 0.375 }
+
+// Achievement
+{ "code": "SURVIVED_THE_PUMPKIN", "name": "Survived the Pumpkin", "unlockedAt": "ISO" }
+```
+
+**Notifications Exam Service sends:**
+
+| Target | Call | When |
+|---|---|---|
+| World | `POST /events/exam-passed { playerId, courseId, category, grade }` | An exam is passed (World may unlock a wing) |
+| Player | `POST /players/{playerId}/rewards { source: "ACHIEVEMENT", code, xp }` | An achievement is unlocked |
+
+### 5.4 World, Zombie, Resource, Base, Crafting, Player
+_To be filled in by each owner in the same format._
 
 ## 6. GitHub Workflow
 
