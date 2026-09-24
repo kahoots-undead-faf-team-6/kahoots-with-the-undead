@@ -6,7 +6,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3002"
+      "value": "http://localhost:3012"
     },
     {
       "key": "zombieTypeId",
@@ -45,7 +45,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Professor\",\n  \"description\": \"Asks deadly questions\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
+              "raw": "{\n  \"code\": \"PROFESSOR\",\n  \"name\": \"Professor\",\n  \"description\": \"Asks deadly questions\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -119,7 +119,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Professor\",\n  \"description\": \"Updated\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
+              "raw": "{\n  \"code\": \"PROFESSOR\",\n  \"name\": \"Professor\",\n  \"description\": \"Updated\",\n  \"stats\": {\n    \"speed\": 1.2,\n    \"health\": 150,\n    \"attack\": 20,\n    \"perceptionRadius\": 8\n  },\n  \"behavior\": {\n    \"mode\": \"guard\",\n    \"aggressiveness\": 0.8,\n    \"fleeHealthPercent\": 10,\n    \"groupsUp\": false\n  },\n  \"sprite\": {\n    \"url\": \"sprites/professor.png\",\n    \"frameWidth\": 32,\n    \"frameHeight\": 32\n  },\n  \"abilities\": [\n    {\n      \"name\": \"Pop Quiz\",\n      \"description\": \"Stuns the player\",\n      \"cooldownSeconds\": 20\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -186,6 +186,28 @@
                 {
                   "key": "name",
                   "value": "Professor"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter by code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/zombie-types?code=PROFESSOR",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "zombie-types"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "PROFESSOR"
                 }
               ]
             }
