@@ -9,7 +9,8 @@ runs end to end until Gabriel pushes his real images. They run on the public ima
 | player-service | 3032 | `GET /health`, `GET /players`, `GET /players/{uuid}` (404 if not a UUID), `PATCH /players/{uuid}/xp {delta}`, `POST /players/{uuid}/rewards {source, code, xp}` | Game (validate player, XP), Exam (rewards) |
 | crafting-service | 3031 | `GET /health`, `GET /recipes`, `POST /craft {playerId, recipeId}` | nobody yet |
 
-No database and no state: XP changes are acknowledged, not stored.
+No database and no state: XP changes are acknowledged, not stored. Each stand-in mounts its `mappings/` folder
+read-only and has a named volume (`player-mock-data`, `crafting-mock-data`) for WireMock response files.
 
 To edit a response, change the JSON in `<service>/mappings/` and run `docker compose restart <service>`.
 
