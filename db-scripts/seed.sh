@@ -4,15 +4,19 @@
 #
 #   ./db-scripts/seed.sh game-service
 #   ./db-scripts/seed.sh exam-service
+#   ./db-scripts/seed.sh resource-service
+#   ./db-scripts/seed.sh base-service
 #
 # Needs the team stack to be running: docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-service="${1:?usage: ./db-scripts/seed.sh <game-service|exam-service>}"
+service="${1:?usage: ./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service>}"
 case "$service" in
   game-service) db_container=game-db; prefix=GAME ;;
   exam-service) db_container=exam-db; prefix=EXAM ;;
+  resource-service) db_container=resource-db; prefix=RESOURCE ;;
+  base-service) db_container=base-db; prefix=BASE ;;
   *) echo "unknown service: $service"; exit 1 ;;
 esac
 

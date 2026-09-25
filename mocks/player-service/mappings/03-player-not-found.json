@@ -1,0 +1,3 @@
+{ "priority": 9,
+  "request": { "method": "ANY", "urlPathPattern": "/players/[^/]+(/.*)?" },
+  "response": { "status": 404, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "jsonBody": { "error": "PLAYER_NOT_FOUND", "message": "player id must be a UUID" } } }

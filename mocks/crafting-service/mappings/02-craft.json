@@ -1,0 +1,4 @@
+{ "request": { "method": "POST", "urlPath": "/craft",
+    "bodyPatterns": [ { "matchesJsonPath": "$.playerId" }, { "matchesJsonPath": "$.recipeId" } ] },
+  "response": { "status": 201, "headers": { "Content-Type": "application/json", "X-Mock": "crafting-service" }, "transformers": ["response-template"],
+    "body": "{ \"craftId\": \"{{randomValue type='UUID'}}\", \"playerId\": \"{{jsonPath request.body '$.playerId'}}\", \"recipeId\": \"{{jsonPath request.body '$.recipeId'}}\", \"status\": \"CRAFTED\", \"mock\": true }" } }

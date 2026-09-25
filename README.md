@@ -8,7 +8,7 @@
 |---|---|---|---|
 | Mitu Vladlen | vladlen.mitu@gmail.com | _mituvladlen_ | Resource Service + Base Service |
 | Moraru Gabriel | gabrielmoraru00@gmail.com | _TBD_ | Crafting Service + Player Service |
-| Mihai Mustea | mihaimustea121@gmail.com | _TBD_ | World Service + Zombie Service |
+| Mihai Mustea | mihaimustea121@gmail.com | @MihaiM1209 | World Service + Zombie Service |
 | Alexandru Bujor | alexandru.bujor@isa.utm.md | @alexandru-bujor | Game Service + Exam Service |
  
 ---
@@ -71,11 +71,11 @@ graph TD
 | Player Service | _TypeScript_ | _Node.js_ | REST | _TBD_ |
 | Game Service | Go 1.22 | net/http (standard library) + gorilla/websocket, PostgreSQL 16 | WebSockets + REST | Many concurrent timers and live connections; goroutines keep them cheap. WebSockets push action progress, cycle changes and zombie events. |
 | Exam Service | Go 1.22 | net/http (standard library), PostgreSQL 16 | REST | Simple request/response; transactions keep grades and achievements consistent. |
-| World Service | _TBD_ | _TBD_ | REST | _TBD_ |
-| Zombie Service | _TBD_ | _TBD_ | REST | _TBD_ |
+| World Service | TypeScript 5 | Node.js 22 + Express 4, MongoDB 7 | REST | The campus map is read-heavy and document-shaped (rooms, nodes, spawn configs with nested fields), so MongoDB fits without joins. TypeScript types keep the map models consistent. |
+| Zombie Service | JavaScript (ES2022) | Node.js 22 + Express 4, MongoDB 7 | REST | Small config-only service: each zombie type is one document with nested stats, behavior, sprite and abilities. Plain JavaScript keeps it light. |
 | Resource Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Mostly I/O-bound database work. PostgreSQL transactions with `actionId` as primary key make gather/consume idempotent, so a retry after a reconnect never awards twice. Same language as Player Service. |
 | Base Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Simple request/response CRUD; transactions keep upgrades consistent. Pays for upgrades through Resource Service (idempotent consume, refund if the local save fails). Same language as Player Service. |
-| Crafting Service | _TBD_ | _TBD_ | REST | _TBD_ |
+| Crafting Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/crafting-service`) | _TBD_ | REST | _TBD_ |
  
 ## 5. Communication Contract
  
@@ -336,8 +336,111 @@ graph TD
 | Resource | `POST /resources/consume { actionId, playerId, items, reason }` | `201`/`200`, `409 INSUFFICIENT_RESOURCES` |
 | Resource | `POST /resources/grant { actionId, playerId, items, source }` | `201`/`200` |
  
-### 5.6 World, Zombie, Crafting, Player
-_To be filled in by each owner in the same format._
+### 5.6 World Service (owner: Mihai Mustea) — port 3011
+
+Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }` (`VALIDATION_ERROR` 400, `NOT_FOUND` 404, `EXAM_NOT_VERIFIED` 422, `INTERNAL_ERROR` 500).
+
+#### Health
+
+| Method | Path | Response |
+|---|---|---|
+| `GET` | `/health` | `200 { "status": "ok", "service": "world-service" }` |
+
+#### CRUD resources
+
+Every resource below supports the same five operations:
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| `GET` | `/<resource>` | optional query filters | `200 [ ... ]` |
+| `GET` | `/<resource>/{id}` | - | `200 {...}`, `404` |
+| `POST` | `/<resource>` | full body | `201 {...}`, `400` |
+| `PUT` | `/<resource>/{id}` | full body | `200 {...}`, `400`, `404` |
+| `PATCH` | `/<resource>/{id}` | partial body | `200 {...}`, `400`, `404` |
+| `DELETE` | `/<resource>/{id}` | - | `204`, `404` |
+
+| Resource | Body fields | Query filters |
+|---|---|---|
+| `/rooms` | `name`, `type` (`base` `canteen` `library` `laboratory` `classroom` `corridor_hub` `other`), `wingId?`, `zoneId?`, `description?` | `type`, `wingId`, `available=true` |
+| `/corridors` | `fromRoomId`, `toRoomId`, `locked?` | `fromRoomId`, `toRoomId` |
+| `/zones` | `name`, `description?`, `dangerLevel` (0-10) | - |
+| `/resource-nodes` | `roomId`, `resourceType` (`metal_scraps` `paper` `food` `textbooks`), `quantity`, `respawnSeconds?` | `roomId`, `resourceType`, `available=true` |
+| `/barricades` | `roomId`, `health`, `maxHealth` | `roomId` |
+| `/spawn-configs` | `roomId`, `zombieType` (`code` from Zombie Service, e.g. `PROFESSOR`), `maxZombies`, `intervalSeconds`, `active?` | `roomId`, `zombieType` |
+| `/wings` | `name`, `unlocked?`, `requiredCourseId?` | - |
+
+#### Map queries and actions
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| `GET` | `/rooms?available=true` | - | `200 [rooms]` not in a locked wing |
+| `GET` | `/rooms/{id}/resource-nodes` | - | `200 [nodes]`, `404` |
+| `GET` | `/resource-nodes?available=true` | - | `200 [nodes]` with quantity > 0 in available rooms |
+| `GET` | `/spawn-points` | - | `200 [spawnConfigs]` active, in available rooms |
+| `POST` | `/wings/{id}/unlock` | - | `200 { "wing": {...}, "alreadyUnlocked": false }`, `404` |
+| `POST` | `/events/exam-passed` | `{ "playerId": "uuid", "courseId": "uuid", "category": "MIDTERM", "grade": 8.5 }` | `200 { "unlocked": [wing], "alreadyUnlocked": [wing] }` (empty lists when no wing needs that course), `400`, `422` |
+
+`POST /events/exam-passed` is sent by the Exam Service (payload as agreed in the contract). Every wing whose `requiredCourseId` equals the `courseId` is unlocked; repeats are idempotent. In Lab 1 the Exam Service is mocked behind `ExamServiceClient` (`src/clients/examClient.ts`) and replaced by a real HTTP client in Lab 2.
+
+#### Lab 1 notes
+- **Storage:** MongoDB (`world` database), seeded by `db-scripts/world-service/seed.js` (FAF Cab, Canteen, Library, Laboratory, 2 classrooms, 1 locked wing).
+- **Available rooms:** a room is available when it has no wing or its wing is unlocked. Resource nodes and spawn points follow the same rule.
+- **Resource types:** Laboratory = `metal_scraps`, Library = `paper`, Canteen = `food`, Classrooms = `textbooks`.
+- **Unlocking:** a wing has an optional `requiredCourseId`. `POST /events/exam-passed` unlocks every wing whose `requiredCourseId` equals the `courseId`, and is idempotent.
+- **Spawn configs** reference a zombie type by its Zombie Service `code` (e.g. `PROFESSOR`).
+
+**Calls World Service receives from other services:**
+
+| From | Call | When |
+|---|---|---|
+| Exam | `POST /events/exam-passed { playerId, courseId, category, grade }` | An exam is passed (mocked in Lab 1 behind `ExamServiceClient`) |
+| Game | `GET /rooms?available=true`, `GET /rooms/{roomId}/resource-nodes`, `GET /spawn-points` | Where players can act, where zombies spawn |
+
+### 5.7 Zombie Service (owner: Mihai Mustea) — port 3012
+
+Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATION_ERROR` 400, `NOT_FOUND` 404, `CONFLICT` 409 (duplicate name or code), `INTERNAL_ERROR` 500.
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| `GET` | `/health` | - | `200 { "status": "ok", "service": "zombie-service" }` |
+| `GET` | `/zombie-types` | query `name`, `code`, `behaviorMode` (optional) | `200 [ zombieType ]` |
+| `POST` | `/zombie-types` | full zombie type | `201 zombieType`, `400`, `409` |
+| `GET` | `/zombie-types/{id}` | - | `200 zombieType`, `404` |
+| `PUT` | `/zombie-types/{id}` | full zombie type | `200 zombieType`, `400`, `404`, `409` |
+| `PATCH` | `/zombie-types/{id}` | partial zombie type | `200 zombieType`, `400`, `404` |
+| `DELETE` | `/zombie-types/{id}` | - | `204`, `404` |
+| `GET` | `/zombie-types/{id}/stats` | - | `200 stats`, `404` |
+| `PATCH` | `/zombie-types/{id}/stats` | partial stats | `200 stats`, `400`, `404` |
+| `GET` | `/zombie-types/{id}/behavior` | - | `200 behavior`, `404` |
+| `PUT` | `/zombie-types/{id}/behavior` | behavior | `200 behavior`, `400`, `404` |
+| `GET` | `/zombie-types/{id}/sprite` | - | `200 sprite`, `404` |
+| `PUT` | `/zombie-types/{id}/sprite` | sprite | `200 sprite`, `400`, `404` |
+| `GET` | `/zombie-types/{id}/abilities` | - | `200 [ ability ]`, `404` |
+| `POST` | `/zombie-types/{id}/abilities` | ability | `201 ability`, `400`, `404`, `409` |
+| `DELETE` | `/zombie-types/{id}/abilities/{name}` | - | `204`, `404` |
+
+#### Lab 1 notes
+- **Storage:** MongoDB (`zombie` database), seeded by `db-scripts/zombie-service/seed.js` with four types: `PROFESSOR`, `TOURIST`, `OVERWORKED_STUDENT`, `DEAN`.
+- **Standalone:** Zombie Service calls no other service, so there is nothing to mock. It only stores definitions; live zombies belong to Game Service.
+- **Uniqueness:** `code` and `name` are both unique (`409 CONFLICT`).
+
+**Calls Zombie Service receives from other services:**
+
+| From | Call | When |
+|---|---|---|
+| Game | `GET /zombie-types` | Zombie configs for the cycle |
+
+### 5.8 Crafting, Player
+_To be filled in by the owner (Gabriel) in the same format._
+
+**Until then, both run as WireMock stand-ins** (`mocks/`, image `wiremock/wiremock:3.9.1`). They are **not** the real services: no database, no state, every response has `"mock": true` and an `X-Mock` header. They only implement the calls other services already make:
+
+| Stand-in | Port | Endpoints |
+|---|---|---|
+| player-service | 3032 | `GET /health`, `GET /players`, `GET /players/{uuid}` (404 `PLAYER_NOT_FOUND` if not a UUID), `PATCH /players/{uuid}/xp { delta }`, `POST /players/{uuid}/rewards { source, code, xp }` |
+| crafting-service | 3031 | `GET /health`, `GET /recipes`, `POST /craft { playerId, recipeId }` |
+
+The real Player Service must keep these three calls (or the callers must be updated): `GET /players/{id}` (Game, Resource, Base), `PATCH /players/{id}/xp` (Game), `POST /players/{id}/rewards` (Exam).
  
 ## 6. GitHub Workflow
  
@@ -367,6 +470,7 @@ kahoots-with-the-undead/
 ├── postman/         # Postman collections, one per service
 ├── deploy/          # docker-compose.yml (DockerHub images only)
 ├── db-scripts/      # seed scripts, one folder per service
+├── mocks/           # WireMock stand-ins for services that are not built yet
 └── .github/         # PR template
 ```
  
@@ -382,11 +486,11 @@ git submodule update --init --recursive
  
 | Service | DockerHub | Private Repo (submodule) |
 |---|---|---|
-| Player Service | _TBD_ | _TBD_ |
+| Player Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/player-service`) | _TBD_ |
 | Game Service | [alexandrubujor1/game-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
 | Exam Service | [alexandrubujor1/exam-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
-| World Service | _TBD_ | _TBD_ |
-| Zombie Service | _TBD_ | _TBD_ |
+| World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
+| Zombie Service | [mihaim888/zombie-service:2.0.0](https://hub.docker.com/r/mihaim888/zombie-service) | [zombie-service](https://github.com/kahoots-undead-faf-team-6/zombie-service) (private) |
 | Resource Service | [mituvladlen/resource-service:1.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
 | Base Service | [mituvladlen/base-service:1.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | _TBD_ | _TBD_ |
@@ -396,6 +500,8 @@ git submodule update --init --recursive
 Postman collections for each service live in [`/postman`](./postman).
  
 - `game-service.postman_collection.json`: Game Service (port 3001)
+- `world-service.postman_collection.json`: World Service (port 3011)
+- `zombie-service.postman_collection.json`: Zombie Service (port 3012)
 - `exam-service.postman_collection.json`: Exam Service (port 3002)
 - `resource-service.postman_collection.json`: Resource Service (port 3005)
 - `base-service.postman_collection.json`: Base Service (port 3006)
@@ -411,11 +517,17 @@ Track lab tasks on the linked [GitHub Project](#).
  
 | Service | Port | Database | Seed data |
 |---|---|---|---|
+| World Service | 3011 | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
+| Zombie Service | 3012 | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
 | Game Service | 3001 | PostgreSQL 16 (`game-db`) | `db-scripts/game-service/` |
 | Exam Service | 3002 | PostgreSQL 16 (`exam-db`) | `db-scripts/exam-service/` |
 | Resource Service | 3005 | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
 | Base Service | 3006 | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
- 
+| Crafting Service (stand-in) | 3031 | none (WireMock) | – |
+| Player Service (stand-in) | 3032 | none (WireMock) | – |
+
+Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds database credentials and optional `*_VERSION` overrides.
+
 ```bash
 cp deploy/.env.example deploy/.env    # set every password
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
@@ -423,11 +535,24 @@ curl http://localhost:3001/health
 curl http://localhost:3002/health
 curl http://localhost:3005/health
 curl http://localhost:3006/health
+curl http://localhost:3011/health
+curl http://localhost:3012/health
+curl http://localhost:3031/health   # crafting stand-in
+curl http://localhost:3032/health   # player stand-in
 ```
+
+**Who calls whom in the compose (Lab 1):**
+- Game → Exam, World, Zombie: real calls. Game → Player: the stand-in. Game → Resource: Game's built-in mock, because Resource has no `POST /resources/steal` yet and its gather body differs (`amount` instead of `actionType`). To be aligned in Lab 2.
+- Exam → World (`ExamPassed`): real call. Exam → Player (rewards): the stand-in.
+- Base → Resource: real call. Resource and Base → Player/World: their built-in mocks (`CLIENT_MODE=mock`).
  
-Each database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <service>`.
+Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service>`.
+
+World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=... node seed.js`, same for `zombie-service`. Health checks: `curl http://localhost:3011/health` and `curl http://localhost:3012/health`.
  
 ## 11. Changelog
  
 - **Lab 1 (v1.0.0), Game + Exam:** CRUD services in Go, PostgreSQL per service with volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of 96–98%, mocks for World, Zombie, Resource and Player.
 - **Lab 1 (v1.0.0), Resource + Base:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocks for Player and World; Base Service calls Resource Service over HTTP (idempotent consume/grant with refund on failure).
+- **Lab 1 (v2.0.0), World + Zombie:** CRUD services in TypeScript (World) and JavaScript (Zombie) on Node.js 22 + Express, MongoDB per service with named volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocked Exam Service for `ExamPassed` behind `ExamServiceClient`.
+- **Lab 1, team deployment:** one `deploy/docker-compose.yml` for the whole team (DockerHub images only, a database and named volume per service), combined `.env.example`, Resource/Base Postman collections and db-scripts, Game and Exam submodules, WireMock stand-ins for Player and Crafting.

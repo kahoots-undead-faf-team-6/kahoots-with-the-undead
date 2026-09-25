@@ -1,0 +1,5 @@
+{ "priority": 1,
+  "request": { "method": "POST", "urlPathPattern": "/players/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/rewards",
+    "bodyPatterns": [ { "matchesJsonPath": "$.code" }, { "matchesJsonPath": "$.xp" } ] },
+  "response": { "status": 201, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "transformers": ["response-template"],
+    "body": "{ \"playerId\": \"{{request.pathSegments.[1]}}\", \"source\": \"{{jsonPath request.body '$.source'}}\", \"code\": \"{{jsonPath request.body '$.code'}}\", \"xp\": {{jsonPath request.body '$.xp'}}, \"mock\": true }" } }

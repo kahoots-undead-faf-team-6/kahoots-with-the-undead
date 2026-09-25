@@ -1,0 +1,662 @@
+{
+  "info": {
+    "name": "Resource Service",
+    "description": "Team 6 - Resource Service (Mitu Vladlen). Seeded players: player-1..3. Mock nodes: node-1=wood, node-2=metal_scraps, node-3=paper, node-4=food.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3005"
+    },
+    {
+      "key": "playerId",
+      "value": "player-1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Resource types",
+      "item": [
+        {
+          "name": "List resource types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-types"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create resource type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resource-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-types"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"gold\",\n  \"name\": \"Gold\",\n  \"description\": \"Rare\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get resource type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-types/wood",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-types",
+                "wood"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update resource type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resource-types/gold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-types",
+                "gold"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Gold\",\n  \"description\": \"Very rare\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete resource type",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resource-types/gold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource-types",
+                "gold"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204\", () => pm.expect(pm.response.code).to.be.oneOf([204]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Inventories",
+      "item": [
+        {
+          "name": "Get player inventory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/{{playerId}}/resources",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "players",
+                "{{playerId}}",
+                "resources"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get one resource quantity",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/{{playerId}}/resources/wood",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "players",
+                "{{playerId}}",
+                "resources",
+                "wood"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set quantity (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/players/{{playerId}}/resources/wood",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "players",
+                "{{playerId}}",
+                "resources",
+                "wood"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset inventory (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/player-5/resources",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "players",
+                "player-5",
+                "resources"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204\", () => pm.expect(pm.response.code).to.be.oneOf([204]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player gather history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/players/{{playerId}}/gathers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "players",
+                "{{playerId}}",
+                "gathers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Node gather summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/nodes/node-1/gathers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "nodes",
+                "node-1",
+                "gathers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Operations (idempotent)",
+      "item": [
+        {
+          "name": "Gather (new actionId each time)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resources/gather",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "gather"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"nodeId\": \"node-1\",\n  \"amount\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.expect(pm.response.code).to.be.oneOf([201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gather - fixed actionId (send twice: 201 then 200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resources/gather",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "gather"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"demo-gather-1\",\n  \"playerId\": \"{{playerId}}\",\n  \"nodeId\": \"node-2\",\n  \"amount\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Second send returns 200 with duplicate=true and the inventory is NOT increased again."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200 or 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consume",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resources/consume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "consume"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"items\": [\n    {\n      \"resourceTypeId\": \"wood\",\n      \"amount\": 5\n    }\n  ],\n  \"reason\": \"manual-test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consume - not enough (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resources/consume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "consume"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"items\": [\n    {\n      \"resourceTypeId\": \"metal_scraps\",\n      \"amount\": 99999\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 409\", () => pm.expect(pm.response.code).to.be.oneOf([409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Grant (reward)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resources/grant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "grant"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"items\": [\n    {\n      \"resourceTypeId\": \"food\",\n      \"amount\": 2\n    }\n  ],\n  \"source\": \"kiki\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.expect(pm.response.code).to.be.oneOf([201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get action by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/resources/actions/demo-gather-1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resources",
+                "actions",
+                "demo-gather-1"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200 or 404\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

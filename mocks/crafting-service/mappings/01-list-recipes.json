@@ -1,0 +1,7 @@
+{ "request": { "method": "GET", "urlPath": "/recipes" },
+  "response": { "status": 200, "headers": { "Content-Type": "application/json", "X-Mock": "crafting-service" }, "jsonBody": [
+    { "recipeId": "cccccccc-0000-4000-8000-000000000001", "name": "Barricade Kit",     "ingredients": { "wood": 5, "metal": 2 }, "mock": true },
+    { "recipeId": "cccccccc-0000-4000-8000-000000000002", "name": "Improvised Weapon", "ingredients": { "wood": 2, "metal": 3 }, "mock": true },
+    { "recipeId": "cccccccc-0000-4000-8000-000000000003", "name": "Cheat Sheet",       "ingredients": { "paper": 4 },            "mock": true },
+    { "recipeId": "cccccccc-0000-4000-8000-000000000004", "name": "Energy Snack",      "ingredients": { "food": 3 },             "mock": true },
+    { "recipeId": "cccccccc-0000-4000-8000-000000000005", "name": "Textbook Shield",   "ingredients": { "textbooks": 2, "metal": 1 }, "mock": true } ] } }

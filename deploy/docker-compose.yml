@@ -1,0 +1,248 @@
+# Only public DockerHub images, never build:. Each image is written with its owner's DockerHub account.
+#
+#   cp deploy/.env.example deploy/.env    # then set the passwords
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+#
+# Every service owns its database. Services owned by other teammates are added by their owners via PR.
+# Until then they run as placeholder mocks (hashicorp/http-echo) so the stack has all 8 services,
+# and Game/Exam keep their *_SERVICE_URL empty for them, which switches on their built-in mocks.
+
+services:
+  # ======================= Game Service (Alexandru) =======================
+  game-service:
+    image: alexandrubujor1/game-service:${GAME_VERSION:-1.0.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3001"
+      STORAGE: postgres
+      DB_HOST: game-db
+      DB_USER: ${GAME_DB_USER}
+      DB_PASSWORD: ${GAME_DB_PASSWORD}
+      DB_NAME: ${GAME_DB_NAME}
+      SEED_ON_START: "true"
+      EXAM_SERVICE_URL: http://exam-service:3002
+      WORLD_SERVICE_URL: http://world-service:3011
+      ZOMBIE_SERVICE_URL: http://zombie-service:3012
+      RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
+      PLAYER_SERVICE_URL: http://player-service:3032   # WireMock stand-in (see mocks/player-service)
+    depends_on:
+      game-db:
+        condition: service_healthy
+      exam-service:
+        condition: service_started
+      world-service:
+        condition: service_started
+      zombie-service:
+        condition: service_started
+      player-service:
+        condition: service_started
+    ports:
+      - "3001:3001"
+
+  game-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${GAME_DB_USER}
+      POSTGRES_PASSWORD: ${GAME_DB_PASSWORD}
+      POSTGRES_DB: ${GAME_DB_NAME}
+    volumes:
+      - game-db-data:/var/lib/postgresql/data
+      - ../db-scripts/game-service:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  # ======================= Exam Service (Alexandru) =======================
+  exam-service:
+    image: alexandrubujor1/exam-service:${EXAM_VERSION:-1.0.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3002"
+      STORAGE: postgres
+      DB_HOST: exam-db
+      DB_USER: ${EXAM_DB_USER}
+      DB_PASSWORD: ${EXAM_DB_PASSWORD}
+      DB_NAME: ${EXAM_DB_NAME}
+      SEED_ON_START: "true"
+      WORLD_SERVICE_URL: http://world-service:3011   # ExamPassed -> unlock wing
+      PLAYER_SERVICE_URL: http://player-service:3032   # WireMock stand-in (see mocks/player-service)
+    depends_on:
+      exam-db:
+        condition: service_healthy
+      world-service:
+        condition: service_started
+      player-service:
+        condition: service_started
+    ports:
+      - "3002:3002"
+
+  exam-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${EXAM_DB_USER}
+      POSTGRES_PASSWORD: ${EXAM_DB_PASSWORD}
+      POSTGRES_DB: ${EXAM_DB_NAME}
+    volumes:
+      - exam-db-data:/var/lib/postgresql/data
+      - ../db-scripts/exam-service:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5434:5432"
+
+  # ======================= World Service (Mihai) =======================
+  world-service:
+    image: mihaim888/world-service:${WORLD_VERSION:-2.0.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3011"
+      STORAGE: mongo
+      MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
+      MONGO_DB: world
+    depends_on:
+      - world-mongo
+    ports:
+      - "3011:3011"
+
+  world-mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${WORLD_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${WORLD_MONGO_PASSWORD}
+    volumes:
+      - world-mongo-data:/data/db
+    ports:
+      - "127.0.0.1:27011:27017"
+
+  # ======================= Zombie Service (Mihai) =======================
+  zombie-service:
+    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-2.0.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3012"
+      STORAGE: mongo
+      MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
+      MONGO_DB: zombie
+    depends_on:
+      - zombie-mongo
+    ports:
+      - "3012:3012"
+
+  zombie-mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${ZOMBIE_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${ZOMBIE_MONGO_PASSWORD}
+    volumes:
+      - zombie-mongo-data:/data/db
+    ports:
+      - "127.0.0.1:27012:27017"
+
+  # ======================= Resource Service (Vladlen) =======================
+  resource-service:
+    image: mituvladlen/resource-service:${RESOURCE_VERSION:-1.0.0}
+    restart: unless-stopped
+    environment:
+      PORT: "3001"                 # inside the container; published on 3005
+      STORAGE: postgres
+      DATABASE_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:5432/${RESOURCE_DB_NAME}
+      SEED_ON_START: "true"
+      CLIENT_MODE: mock            # Player and World calls are mocked in Lab 1
+      PLAYER_SERVICE_URL: http://player-service:3032
+      WORLD_SERVICE_URL: http://world-service:3011
+    depends_on:
+      resource-db:
+        condition: service_healthy
+    ports:
+      - "3005:3001"
+
+  resource-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${RESOURCE_DB_USER}
+      POSTGRES_PASSWORD: ${RESOURCE_DB_PASSWORD}
+      POSTGRES_DB: ${RESOURCE_DB_NAME}
+    volumes:
+      - resource-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  # ======================= Base Service (Vladlen) =======================
+  base-service:
+    image: mituvladlen/base-service:${BASE_VERSION:-1.0.0}
+    restart: unless-stopped
+    environment:
+      PORT: "3002"                 # inside the container; published on 3006
+      STORAGE: postgres
+      DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
+      SEED_ON_START: "true"
+      CLIENT_MODE: mock            # Player and World mocked
+      RESOURCE_CLIENT: http        # real call to Resource Service
+      RESOURCE_SERVICE_URL: http://resource-service:3001
+    depends_on:
+      base-db:
+        condition: service_healthy
+      resource-service:
+        condition: service_started
+    ports:
+      - "3006:3002"
+
+  base-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${BASE_DB_USER}
+      POSTGRES_PASSWORD: ${BASE_DB_PASSWORD}
+      POSTGRES_DB: ${BASE_DB_NAME}
+    volumes:
+      - base-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  # ---- Player + Crafting (owner: Gabriel) -- STAND-IN MOCKS, not Gabriel's implementation ----
+  # WireMock serves the contract endpoints from ../mocks/<service>/mappings (public image, no build:).
+  # Every response carries "mock": true and the header X-Mock. Gabriel replaces these two blocks
+  # with his real images + PostgreSQL via PR.
+  crafting-service:
+    image: wiremock/wiremock:3.9.1
+    restart: unless-stopped
+    command: ["--port", "3031", "--global-response-templating", "--disable-banner"]
+    volumes:
+      - ../mocks/crafting-service:/home/wiremock:ro
+    ports:
+      - "3031:3031"
+
+  player-service:
+    image: wiremock/wiremock:3.9.1
+    restart: unless-stopped
+    command: ["--port", "3032", "--global-response-templating", "--disable-banner"]
+    volumes:
+      - ../mocks/player-service:/home/wiremock:ro
+    ports:
+      - "3032:3032"
+
+volumes:
+  game-db-data:
+  exam-db-data:
+  world-mongo-data:
+  zombie-mongo-data:
+  resource-db-data:
+  base-db-data:
