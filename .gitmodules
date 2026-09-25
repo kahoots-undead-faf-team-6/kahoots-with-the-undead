@@ -10,3 +10,11 @@
 [submodule "services/exam-service"]
 	path = services/exam-service
 	url = https://github.com/kahoots-undead-faf-team-6/exam-service.git
+[submodule "services/resource-service"]
+	path = services/resource-service
+	url = https://github.com/kahoots-undead-faf-team-6/resource-service.git
+	branch = development
+[submodule "services/base-service"]
+	path = services/base-service
+	url = https://github.com/kahoots-undead-faf-team-6/base-service.git
+	branch = development
