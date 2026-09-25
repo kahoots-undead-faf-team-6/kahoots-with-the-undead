@@ -1,0 +1,5 @@
+{ "request": { "method": "GET", "urlPath": "/players" },
+  "response": { "status": 200, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "jsonBody": [
+    { "playerId": "aaaaaaaa-0000-4000-8000-000000000001", "username": "alice", "xp": 120, "level": 2, "mock": true },
+    { "playerId": "aaaaaaaa-0000-4000-8000-000000000002", "username": "bob",   "xp": 40,  "level": 1, "mock": true },
+    { "playerId": "aaaaaaaa-0000-4000-8000-000000000003", "username": "carol", "xp": 0,   "level": 1, "mock": true } ] } }

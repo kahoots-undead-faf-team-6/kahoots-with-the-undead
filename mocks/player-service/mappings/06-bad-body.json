@@ -1,0 +1,3 @@
+{ "priority": 5,
+  "request": { "method": "ANY", "urlPathPattern": "/players/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/(xp|rewards)" },
+  "response": { "status": 400, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "jsonBody": { "error": "VALIDATION_ERROR", "message": "xp needs { delta }, rewards needs { source, code, xp }" } } }

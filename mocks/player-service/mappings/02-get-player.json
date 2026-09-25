@@ -1,0 +1,4 @@
+{ "priority": 1,
+  "request": { "method": "GET", "urlPathPattern": "/players/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" },
+  "response": { "status": 200, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "transformers": ["response-template"],
+    "body": "{ \"playerId\": \"{{request.pathSegments.[1]}}\", \"username\": \"player-{{request.pathSegments.[1]}}\", \"xp\": 100, \"level\": 2, \"mock\": true }" } }

@@ -4,3 +4,9 @@
 [submodule "services/zombie-service"]
 	path = services/zombie-service
 	url = https://github.com/kahoots-undead-faf-team-6/zombie-service.git
+[submodule "services/game-service"]
+	path = services/game-service
+	url = https://github.com/kahoots-undead-faf-team-6/game-service.git
+[submodule "services/exam-service"]
+	path = services/exam-service
+	url = https://github.com/kahoots-undead-faf-team-6/exam-service.git

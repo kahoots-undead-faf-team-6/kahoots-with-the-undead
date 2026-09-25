@@ -1,0 +1,5 @@
+{ "priority": 1,
+  "request": { "method": "PATCH", "urlPathPattern": "/players/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/xp",
+    "bodyPatterns": [ { "matchesJsonPath": "$.delta" } ] },
+  "response": { "status": 200, "headers": { "Content-Type": "application/json", "X-Mock": "player-service" }, "transformers": ["response-template"],
+    "body": "{ \"playerId\": \"{{request.pathSegments.[1]}}\", \"delta\": {{jsonPath request.body '$.delta'}}, \"xp\": 100, \"mock\": true }" } }
