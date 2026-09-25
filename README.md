@@ -75,7 +75,7 @@ graph TD
 | Zombie Service | JavaScript (ES2022) | Node.js 22 + Express 4, MongoDB 7 | REST | Small config-only service: each zombie type is one document with nested stats, behavior, sprite and abilities. Plain JavaScript keeps it light. |
 | Resource Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Mostly I/O-bound database work. PostgreSQL transactions with `actionId` as primary key make gather/consume idempotent, so a retry after a reconnect never awards twice. Same language as Player Service. |
 | Base Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Simple request/response CRUD; transactions keep upgrades consistent. Pays for upgrades through Resource Service (idempotent consume, refund if the local save fails). Same language as Player Service. |
-| Crafting Service | _TBD_ | _TBD_ | REST | _TBD_ |
+| Crafting Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/crafting-service`) | _TBD_ | REST | _TBD_ |
  
 ## 5. Communication Contract
  
@@ -431,7 +431,16 @@ Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATIO
 | Game | `GET /zombie-types` | Zombie configs for the cycle |
 
 ### 5.8 Crafting, Player
-_To be filled in by each owner in the same format._
+_To be filled in by the owner (Gabriel) in the same format._
+
+**Until then, both run as WireMock stand-ins** (`mocks/`, image `wiremock/wiremock:3.9.1`). They are **not** the real services: no database, no state, every response has `"mock": true` and an `X-Mock` header. They only implement the calls other services already make:
+
+| Stand-in | Port | Endpoints |
+|---|---|---|
+| player-service | 3032 | `GET /health`, `GET /players`, `GET /players/{uuid}` (404 `PLAYER_NOT_FOUND` if not a UUID), `PATCH /players/{uuid}/xp { delta }`, `POST /players/{uuid}/rewards { source, code, xp }` |
+| crafting-service | 3031 | `GET /health`, `GET /recipes`, `POST /craft { playerId, recipeId }` |
+
+The real Player Service must keep these three calls (or the callers must be updated): `GET /players/{id}` (Game, Resource, Base), `PATCH /players/{id}/xp` (Game), `POST /players/{id}/rewards` (Exam).
  
 ## 6. GitHub Workflow
  
@@ -461,6 +470,7 @@ kahoots-with-the-undead/
 ├── postman/         # Postman collections, one per service
 ├── deploy/          # docker-compose.yml (DockerHub images only)
 ├── db-scripts/      # seed scripts, one folder per service
+├── mocks/           # WireMock stand-ins for services that are not built yet
 └── .github/         # PR template
 ```
  
@@ -476,7 +486,7 @@ git submodule update --init --recursive
  
 | Service | DockerHub | Private Repo (submodule) |
 |---|---|---|
-| Player Service | _TBD_ | _TBD_ |
+| Player Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/player-service`) | _TBD_ |
 | Game Service | [alexandrubujor1/game-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
 | Exam Service | [alexandrubujor1/exam-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
 | World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
@@ -513,7 +523,11 @@ Track lab tasks on the linked [GitHub Project](#).
 | Exam Service | 3002 | PostgreSQL 16 (`exam-db`) | `db-scripts/exam-service/` |
 | Resource Service | 3005 | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
 | Base Service | 3006 | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
- 
+| Crafting Service (stand-in) | 3031 | none (WireMock) | – |
+| Player Service (stand-in) | 3032 | none (WireMock) | – |
+
+Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds database credentials and optional `*_VERSION` overrides.
+
 ```bash
 cp deploy/.env.example deploy/.env    # set every password
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
@@ -521,9 +535,18 @@ curl http://localhost:3001/health
 curl http://localhost:3002/health
 curl http://localhost:3005/health
 curl http://localhost:3006/health
+curl http://localhost:3011/health
+curl http://localhost:3012/health
+curl http://localhost:3031/health   # crafting stand-in
+curl http://localhost:3032/health   # player stand-in
 ```
+
+**Who calls whom in the compose (Lab 1):**
+- Game → Exam, World, Zombie: real calls. Game → Player: the stand-in. Game → Resource: Game's built-in mock, because Resource has no `POST /resources/steal` yet and its gather body differs (`amount` instead of `actionType`). To be aligned in Lab 2.
+- Exam → World (`ExamPassed`): real call. Exam → Player (rewards): the stand-in.
+- Base → Resource: real call. Resource and Base → Player/World: their built-in mocks (`CLIENT_MODE=mock`).
  
-Each database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <service>`.
+Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service>`.
 
 World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=... node seed.js`, same for `zombie-service`. Health checks: `curl http://localhost:3011/health` and `curl http://localhost:3012/health`.
  
@@ -532,3 +555,4 @@ World and Zombie use MongoDB and are seeded by hand (they skip if the database i
 - **Lab 1 (v1.0.0), Game + Exam:** CRUD services in Go, PostgreSQL per service with volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of 96–98%, mocks for World, Zombie, Resource and Player.
 - **Lab 1 (v1.0.0), Resource + Base:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocks for Player and World; Base Service calls Resource Service over HTTP (idempotent consume/grant with refund on failure).
 - **Lab 1 (v2.0.0), World + Zombie:** CRUD services in TypeScript (World) and JavaScript (Zombie) on Node.js 22 + Express, MongoDB per service with named volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocked Exam Service for `ExamPassed` behind `ExamServiceClient`.
+- **Lab 1, team deployment:** one `deploy/docker-compose.yml` for the whole team (DockerHub images only, a database and named volume per service), combined `.env.example`, Resource/Base Postman collections and db-scripts, Game and Exam submodules, WireMock stand-ins for Player and Crafting.
