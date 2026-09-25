@@ -1,0 +1,767 @@
+{
+  "info": {
+    "name": "Base Service",
+    "description": "Team 6 - Base Service (Mitu Vladlen). Seeded bases: player-1..3 (FAF Cab). Mock rooms: room-1..room-5.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3006"
+    },
+    {
+      "key": "playerId",
+      "value": "player-1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & costs",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Price list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/costs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "costs"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bases",
+      "item": [
+        {
+          "name": "List bases",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create base (FAF Cab)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"player-4\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get base (with barricades, facilities, decorations)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rename base",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"FAF Cab Deluxe\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete base",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/player-4",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "player-4"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204 or 404\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Upgrades",
+      "item": [
+        {
+          "name": "Upgrade info / next cost",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/upgrade",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "upgrade"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upgrade base",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/upgrade",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "upgrade"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([200, 409]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Barricades",
+      "item": [
+        {
+          "name": "List barricades",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/barricades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "barricades"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Build barricade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/barricades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "barricades"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"roomId\": \"room-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove barricade",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/barricades/<barricadeId>",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "barricades",
+                "<barricadeId>"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204 or 404\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Facilities",
+      "item": [
+        {
+          "name": "List facilities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/facilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "facilities"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Build facility",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/facilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "facilities"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"type\": \"workbench\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove facility",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/facilities/<facilityId>",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "facilities",
+                "<facilityId>"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204 or 404\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Decorations",
+      "item": [
+        {
+          "name": "List decorations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/decorations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "decorations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add decoration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/decorations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "decorations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Plant\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.expect(pm.response.code).to.be.oneOf([201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove decoration",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/decorations/<decorationId>",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "decorations",
+                "<decorationId>"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 204 or 404\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Kiki",
+      "item": [
+        {
+          "name": "Interact with Kiki (random reward)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/kiki",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "kiki"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.expect(pm.response.code).to.be.oneOf([201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kiki - fixed actionId (send twice: same reward)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/kiki",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "kiki"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"demo-kiki-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200 or 201\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kiki history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bases/{{playerId}}/kiki",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bases",
+                "{{playerId}}",
+                "kiki"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
