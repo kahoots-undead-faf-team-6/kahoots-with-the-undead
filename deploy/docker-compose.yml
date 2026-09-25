@@ -226,7 +226,8 @@ services:
     restart: unless-stopped
     command: ["--port", "3031", "--global-response-templating", "--disable-banner"]
     volumes:
-      - ../mocks/crafting-service:/home/wiremock:ro
+      - ../mocks/crafting-service/mappings:/home/wiremock/mappings:ro   # stub definitions from the repo
+      - crafting-mock-data:/home/wiremock/__files                       # named volume for response files
     ports:
       - "3031:3031"
 
@@ -235,7 +236,8 @@ services:
     restart: unless-stopped
     command: ["--port", "3032", "--global-response-templating", "--disable-banner"]
     volumes:
-      - ../mocks/player-service:/home/wiremock:ro
+      - ../mocks/player-service/mappings:/home/wiremock/mappings:ro   # stub definitions from the repo
+      - player-mock-data:/home/wiremock/__files                       # named volume for response files
     ports:
       - "3032:3032"
 
@@ -246,3 +248,5 @@ volumes:
   zombie-mongo-data:
   resource-db-data:
   base-db-data:
+  player-mock-data:
+  crafting-mock-data:
