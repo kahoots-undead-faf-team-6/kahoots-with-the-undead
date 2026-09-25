@@ -1,0 +1,2 @@
+{ "request": { "method": "GET", "urlPath": "/health" },
+  "response": { "status": 200, "headers": { "Content-Type": "application/json", "X-Mock": "crafting-service" }, "jsonBody": { "status": "ok", "service": "crafting-service", "mock": true } } }
