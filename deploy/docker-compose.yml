@@ -3,9 +3,11 @@
 #   cp deploy/.env.example deploy/.env    # then set the passwords
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 #
-# Lab 2: the gateway (port 8080) is the single entry point. Clients and services call
-#   http://localhost:8080/<service>/...   (from inside the network: http://gateway:8080/<service>/...)
-# Game also publishes 3001 for the direct WebSocket opened after POST /ws/negotiate.
+# Lab 2: the gateway is the single entry point.
+#   clients:   http://localhost:8080/<service>/...   (Bearer token, see the README)
+#   services:  http://gateway:8081/<service>/...     (internal listener, never published)
+# Only the gateway (8080) and Game (3001, for the direct WebSocket after POST /ws/negotiate)
+# publish a port; every other service is reachable through the gateway only.
 #
 # Every service owns its database (and a named volume for it). All 8 services run their real images.
 
@@ -16,6 +18,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8080"
+      INTERNAL_PORT: "8081"          # service-to-service listener, Docker network only
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_KEY: ${ADMIN_KEY}
       PLAYER_JWT_SECRET: ${PLAYER_JWT_SECRET}   # accept Player Service login tokens
@@ -44,7 +47,7 @@ services:
       - crafting-service
       - player-service
     ports:
-      - "8080:8080"
+      - "8080:8080"                  # 8081 is deliberately NOT published
 
   # ======================= Game Service (Alexandru) =======================
   game-service:
@@ -60,11 +63,11 @@ services:
       DB_NAME: ${GAME_DB_NAME}
       SEED_ON_START: "true"
       # Lab 2: every call to another service goes through the gateway
-      EXAM_SERVICE_URL: http://gateway:8080/exam
-      WORLD_SERVICE_URL: http://gateway:8080/world
-      ZOMBIE_SERVICE_URL: http://gateway:8080/zombie
+      EXAM_SERVICE_URL: http://gateway:8081/exam
+      WORLD_SERVICE_URL: http://gateway:8081/world
+      ZOMBIE_SERVICE_URL: http://gateway:8081/zombie
       RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
-      PLAYER_SERVICE_URL: http://gateway:8080/player
+      PLAYER_SERVICE_URL: http://gateway:8081/player
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
@@ -107,8 +110,8 @@ services:
       DB_NAME: ${EXAM_DB_NAME}
       SEED_ON_START: "true"
       # Lab 2: every call to another service goes through the gateway
-      WORLD_SERVICE_URL: http://gateway:8080/world     # ExamPassed -> unlock wing
-      PLAYER_SERVICE_URL: http://gateway:8080/player
+      WORLD_SERVICE_URL: http://gateway:8081/world     # ExamPassed -> unlock wing
+      PLAYER_SERVICE_URL: http://gateway:8081/player
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
@@ -147,8 +150,7 @@ services:
       MONGO_DB: world
     depends_on:
       - world-mongo
-    ports:
-      - "3011:3011"
+    # no published port: reach it through the gateway at /world
 
   world-mongo:
     image: mongo:7
@@ -173,8 +175,7 @@ services:
       MONGO_DB: zombie
     depends_on:
       - zombie-mongo
-    ports:
-      - "3012:3012"
+    # no published port: reach it through the gateway at /zombie
 
   zombie-mongo:
     image: mongo:7
@@ -196,14 +197,13 @@ services:
       STORAGE: postgres
       DATABASE_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:5432/${RESOURCE_DB_NAME}
       SEED_ON_START: "true"
-      CLIENT_MODE: mock            # Player and World calls are mocked in Lab 1
-      PLAYER_SERVICE_URL: http://player-service:3032
-      WORLD_SERVICE_URL: http://world-service:3011
+      CLIENT_MODE: mock            # Player and World mocked (its players are player-1..3, see README)
+      PLAYER_SERVICE_URL: http://gateway:8081/player   # Lab 2: through the gateway when CLIENT_MODE=http
+      WORLD_SERVICE_URL: http://gateway:8081/world
     depends_on:
       resource-db:
         condition: service_healthy
-    ports:
-      - "3005:3001"
+    # no published port: reach it through the gateway at /resource
 
   resource-db:
     image: postgres:16-alpine
@@ -229,15 +229,14 @@ services:
       DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
       SEED_ON_START: "true"
       CLIENT_MODE: mock            # Player and World mocked
-      RESOURCE_CLIENT: http        # real call to Resource Service
-      RESOURCE_SERVICE_URL: http://resource-service:3001
+      RESOURCE_CLIENT: http        # real call to Resource Service, through the gateway
+      RESOURCE_SERVICE_URL: http://gateway:8081/resource/resources   # Base posts {URL}/consume -> Resource /resources/consume
     depends_on:
       base-db:
         condition: service_healthy
       resource-service:
         condition: service_started
-    ports:
-      - "3006:3002"
+    # no published port: reach it through the gateway at /base
 
   base-db:
     image: postgres:16-alpine
@@ -263,11 +262,11 @@ services:
       DATABASE_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:5432/${PLAYER_DB_NAME}
       SEED_ON_START: "true"
       JWT_SECRET: ${PLAYER_JWT_SECRET}
+      TRUST_GATEWAY_HEADERS: "true"   # Lab 2: caller comes from the gateway's X-User-Id (player-service PR #4)
     depends_on:
       player-db:
         condition: service_healthy
-    ports:
-      - "3032:3032"
+    # no published port: reach it through the gateway at /player
 
   player-db:
     image: postgres:16-alpine
@@ -296,9 +295,9 @@ services:
       DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
       SEED_ON_START: "true"
       PLAYER_CLIENT: http          # real call: player level + deliver the crafted item
-      PLAYER_SERVICE_URL: http://player-service:3032
-      RESOURCE_CLIENT: mock        # Lab 1: mocked (Resource's own Player mock only knows player-1..3, see README)
-      RESOURCE_SERVICE_URL: http://resource-service:3001
+      PLAYER_SERVICE_URL: http://gateway:8081/player   # Lab 2: through the gateway
+      RESOURCE_CLIENT: mock        # mocked: Resource's own Player mock only knows player-1..3 (see README)
+      RESOURCE_SERVICE_URL: http://gateway:8081/resource
       EXAM_CLIENT: mock            # Lab 1: unlock conditions mocked
       WORLD_CLIENT: mock
     depends_on:
@@ -306,8 +305,7 @@ services:
         condition: service_healthy
       player-service:
         condition: service_started
-    ports:
-      - "3031:3031"
+    # no published port: reach it through the gateway at /crafting
 
   crafting-db:
     image: postgres:16-alpine
