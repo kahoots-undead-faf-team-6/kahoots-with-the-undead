@@ -2,7 +2,7 @@
   "info": {
     "name": "Lab 2 - API Gateway",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Everything goes through the gateway (port 8080). Run the folders in order. The token from '1. Auth' is used for every request through collection-level Bearer auth; admin requests use adminToken."
+    "description": "Everything goes through the gateway (port 8080). Run the folders in order. The token from '1. Auth' is used for every request through collection-level Bearer auth; admin requests use adminToken. Folders 8-9 (Gabriel): Player and Crafting through the gateway, the 429 burst and the services' own 408. Folders 6 and 9 need DEMO_MODE=true and low limits."
   },
   "auth": {
     "type": "bearer",
@@ -1440,7 +1440,979 @@
       ]
     },
     {
-      "name": "8. Cleanup",
+      "name": "8. Player + Crafting through the gateway",
+      "description": "Player login tokens are validated by the gateway, which forwards only X-User-Id / X-User-Role. Crafting calls Resource and Player through the gateway's internal listener.",
+      "item": [
+        {
+          "name": "Login alice (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/auth/login",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"playerToken\", pm.response.json().token);",
+                  "pm.collectionVariables.set(\"alice\", pm.response.json().player.playerId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login bob (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/auth/login",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"bob\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"bobToken\", pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice's profile and level",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/players/{{alice}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{alice}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"has a level\", () => pm.expect(pm.response.json().level).to.be.a(\"number\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Edit someone else's profile -> 403",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/players/aaaaaaaa-0000-4000-8000-000000000002",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "aaaaaaaa-0000-4000-8000-000000000002"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bio\": \"hacked\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error FORBIDDEN\", () => pm.expect(pm.response.json().error).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: give bob a sandwich (service-style grant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/players/aaaaaaaa-0000-4000-8000-000000000002/inventory",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "aaaaaaaa-0000-4000-8000-000000000002",
+                "inventory"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemCode\": \"DAVIDAN_SANDWICH\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice proposes a trade (coffee for bob's sandwich)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/trades",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "trades"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toPlayerId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n  \"offered\": [\n    {\n      \"itemCode\": \"COFFEE\",\n      \"quantity\": 1\n    }\n  ],\n  \"requested\": [\n    {\n      \"itemCode\": \"DAVIDAN_SANDWICH\",\n      \"quantity\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// give alice a coffee first so the collection can be run many times",
+                  "pm.sendRequest({ url: pm.collectionVariables.get(\"gatewayUrl\") + \"/player/players/\" + pm.collectionVariables.get(\"alice\") + \"/inventory\", method: \"POST\",",
+                  "  header: { \"Content-Type\": \"application/json\", Authorization: \"Bearer \" + pm.collectionVariables.get(\"playerToken\") },",
+                  "  body: { mode: \"raw\", raw: JSON.stringify({ itemCode: \"COFFEE\", quantity: 1 }) } }, () => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"tradeId\", pm.response.json().tradeId);",
+                  "pm.test(\"sender is alice (from X-User-Id)\", () => pm.expect(pm.response.json().fromPlayerId).to.eql(pm.collectionVariables.get(\"alice\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice accepts her own trade -> 403",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/trades/{{tradeId}}/accept",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "trades",
+                "{{tradeId}}",
+                "accept"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error FORBIDDEN\", () => pm.expect(pm.response.json().error).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bob accepts the trade (atomic swap)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/trades/{{tradeId}}/accept",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "trades",
+                "{{tradeId}}",
+                "accept"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{bobToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"completed\", () => pm.expect(pm.response.json().status).to.eql(\"completed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crafting recipes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/recipes",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "recipes"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"5 seeded recipes\", () => pm.expect(pm.response.json().length).to.be.at.least(5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Recipes unlocked for alice (Crafting -> Player, Exam, World, Resource)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/players/{{alice}}/recipes",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "players",
+                "{{alice}}",
+                "recipes"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"each recipe has unlocked + missing\", () => pm.expect(pm.response.json()[0]).to.have.property(\"missing\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: give alice wood (Resource, testing endpoint)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/resource/players/{{alice}}/resources/wood",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{alice}}",
+                "resources",
+                "wood"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: give alice metal scraps",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/resource/players/{{alice}}/resources/metal_scraps",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{alice}}",
+                "resources",
+                "metal_scraps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice crafts a Barricade Kit (Crafting -> Resource consume, Crafting -> Player item)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "No playerId: Crafting takes it from X-User-Id.",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/craft",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "craft"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipeId\": \"e0000000-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"completed for alice\", () => { const b = pm.response.json(); pm.expect(b.status).to.eql(\"completed\"); pm.expect(b.playerId).to.eql(pm.collectionVariables.get(\"alice\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Materials were consumed (wood 10 -> 7)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/resource/players/{{alice}}/resources/wood",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{alice}}",
+                "resources",
+                "wood"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"7 wood left\", () => pm.expect(pm.response.json().quantity).to.eql(7));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "The item is in alice's inventory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/players/{{alice}}/inventory",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{alice}}",
+                "inventory"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"has a Barricade Kit\", () => pm.expect(pm.response.json().items.map(i => i.itemCode)).to.include(\"BARRICADE_KIT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Craft for another player -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/craft",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "craft"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"aaaaaaaa-0000-4000-8000-000000000003\",\n  \"recipeId\": \"e0000000-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error FORBIDDEN\", () => pm.expect(pm.response.json().error).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crafting without a token -> 401 (gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/recipes",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "recipes"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error MISSING_TOKEN\", () => pm.expect(pm.response.json().error).to.eql(\"MISSING_TOKEN\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Limits: 429 and the service timeout (needs DEMO_MODE=true)",
+      "description": "Set low limits for the demo in deploy/.env: GATEWAY_MAX_CONCURRENT_REQUESTS=3, DEMO_MODE=true. 'burst' (default 10) must be larger than GATEWAY_MAX_CONCURRENT_REQUESTS.",
+      "item": [
+        {
+          "name": "Burst of parallel requests -> some 429 TOO_MANY_REQUESTS (gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "The request itself is just a health check; the test script sends the burst to /debug/slow.",
+            "url": {
+              "raw": "{{gatewayUrl}}/health",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "// Postman runs requests one by one, so this script fires {{burst}} requests at once itself.",
+                  "const n = Number(pm.collectionVariables.get('burst') || 10);",
+                  "const url = pm.collectionVariables.get('gatewayUrl') + '/debug/slow?ms=2000';",
+                  "const codes = []; const bodies = [];",
+                  "for (let i = 0; i < n; i++) {",
+                  "  pm.sendRequest(url, (err, res) => {",
+                  "    codes.push(err ? 0 : res.code);",
+                  "    if (!err && res.code === 429) bodies.push(res.json());",
+                  "    if (codes.length === n) {",
+                  "      console.log('burst status codes', codes);",
+                  "      pm.test('some requests got 429', () => pm.expect(codes).to.include(429));",
+                  "      pm.test('the others went through (200)', () => pm.expect(codes).to.include(200));",
+                  "      pm.test('429 body is TOO_MANY_REQUESTS', () => pm.expect(bodies[0].error).to.eql('TOO_MANY_REQUESTS'));",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Player's own REQUEST_TIMEOUT_MS (SERVICE_REQUEST_TIMEOUT_MS, 5000) is shorter than the gateway's (10000).",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/debug/slow?ms=8000",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(pm.response.json().error).to.eql(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crafting Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/debug/slow?ms=8000",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(pm.response.json().error).to.eql(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10. Cleanup",
       "item": [
         {
           "name": "Delete session (admin)",
@@ -1581,6 +2553,18 @@
     {
       "key": "flowSessionId",
       "value": ""
+    },
+    {
+      "key": "bobToken",
+      "value": ""
+    },
+    {
+      "key": "tradeId",
+      "value": ""
+    },
+    {
+      "key": "burst",
+      "value": "10"
     }
   ]
 }
