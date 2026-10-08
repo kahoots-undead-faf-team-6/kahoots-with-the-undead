@@ -7,7 +7,7 @@
 | Name | Email | GitHub handle | Role focus |
 |---|---|---|---|
 | Mitu Vladlen | vladlen.mitu@gmail.com | _mituvladlen_ | Resource Service + Base Service |
-| Moraru Gabriel | gabrielmoraru00@gmail.com | _TBD_ | Crafting Service + Player Service |
+| Moraru Gabriel | gabrielmoraru00@gmail.com | @Gabriel120405 | Crafting Service + Player Service |
 | Mihai Mustea | mihaimustea121@gmail.com | @MihaiM1209 | World Service + Zombie Service |
 | Alexandru Bujor | alexandru.bujor@isa.utm.md | @alexandru-bujor | Game Service + Exam Service |
  
@@ -34,31 +34,61 @@ a distinct slice of state and behavior.
 | **Crafting Service** | Recipes, crafting validation, atomic craft operations | Player inventory storage (delegates the actual item transfer to Player Service) |
  
 ## 3. Architecture Diagram
- 
+
+From Lab 2 the **API Gateway** is the single entry point. Clients and services send every REST request to it; it validates the caller (JWT for clients, `X-Internal-Key` for services), applies its limits and forwards the request without the credentials. The only traffic that bypasses it is the live WebSocket to Game, which the gateway negotiates and the client then opens directly.
+
 ```mermaid
 graph TD
-    Player[Player Service]
-    Game[Game Service]
-    Exam[Exam Service]
-    World[World Service]
-    Zombie[Zombie Service]
-    Resource[Resource Service]
-    Base[Base Service]
-    Crafting[Crafting Service]
- 
-    Game -->|requests exam on Professor Zombie encounter| Exam
-    Game -->|query rooms / resource nodes / spawn points| World
-    Game -->|get zombie config for cycle| Zombie
-    Game -->|validate & apply resource change| Resource
-    Game -->|verify ownership & transfer items on trade| Player
-    Exam -->|notify ExamPassed, unlock new wing| World
-    Exam -->|unlock achievements / trigger rewards| Player
-    Resource -->|consume resources for upgrades| Base
-    Crafting -->|validate required materials| Resource
-    Crafting -->|transfer crafted item to inventory| Player
-    Base -->|references geography, doesn't own it| World
+    Client([Client / Postman])
+    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · timeout · concurrency limit}}
+
+    subgraph Services
+        Player[Player Service]
+        Game[Game Service]
+        Exam[Exam Service]
+        World[World Service]
+        Zombie[Zombie Service]
+        Resource[Resource Service]
+        Base[Base Service]
+        Crafting[Crafting Service]
+    end
+
+    Client -->|REST + Bearer JWT| Gateway
+    Client -->|1. POST /ws/negotiate| Gateway
+    Client -.->|2. WebSocket, direct, signed token| Game
+
+    Gateway -->|/game| Game
+    Gateway -->|/exam| Exam
+    Gateway -->|/world| World
+    Gateway -->|/zombie| Zombie
+    Gateway -->|/resource| Resource
+    Gateway -->|/base| Base
+    Gateway -->|/crafting| Crafting
+    Gateway -->|/player| Player
+
+    Game ==>|via gateway: exam on Professor Zombie, rooms, zombie config, resources, XP| Gateway
+    Exam ==>|via gateway: ExamPassed, rewards| Gateway
+    Crafting ==>|via gateway: materials, item transfer| Gateway
+    Resource ==>|via gateway: player / world checks| Gateway
+    Base ==>|via gateway: consume resources, geography| Gateway
 ```
- 
+
+Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8081/exam/exams`):
+
+| From | To | Why |
+|---|---|---|
+| Game | Exam | Start an exam on a Professor Zombie encounter |
+| Game | World | Rooms, resource nodes, spawn points |
+| Game | Zombie | Zombie types for the cycle |
+| Game | Resource | Gather / steal resources |
+| Game | Player | Validate players, change XP |
+| Exam | World | `ExamPassed` unlocks a new wing |
+| Exam | Player | Achievements and rewards |
+| Base | Resource | Consume resources for upgrades |
+| Base | World | References geography |
+| Crafting | Resource | Validate required materials |
+| Crafting | Player | Transfer the crafted item |
+
 ## 4. Technologies & Communication Patterns
  
 > _To complete: team decision on the 2 languages._ Each service's language, framework, and
@@ -68,14 +98,15 @@ graph TD
  
 | Service | Language | Framework | Communication | Why |
 |---|---|---|---|---|
-| Player Service | _TypeScript_ | _Node.js_ | REST | _TBD_ |
-| Game Service | Go 1.22 | net/http (standard library) + gorilla/websocket, PostgreSQL 16 | WebSockets + REST | Many concurrent timers and live connections; goroutines keep them cheap. WebSockets push action progress, cycle changes and zombie events. |
+| **API Gateway** | Python 3.12 | FastAPI + httpx + PyJWT | REST (+ WebSocket negotiation) | Written in the lab's required language. Async I/O suits a proxy that mostly waits on other services; FastAPI gives OpenAPI docs for free. |
+| Player Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST (JWT for player actions) | Many small request/response calls from Game, Exam, Resource, Base and Crafting. Trades must move items between two players atomically: one PostgreSQL transaction locks both inventories, checks ownership and swaps. Same language as Resource and Base, so the team shares tooling. |
+| Game Service | Go 1.22 | net/http (standard library) + gorilla/websocket, PostgreSQL 16 | WebSockets (direct, negotiated by the gateway) + REST | Many concurrent timers and live connections; goroutines keep them cheap. WebSockets push action progress, cycle changes and zombie events. |
 | Exam Service | Go 1.22 | net/http (standard library), PostgreSQL 16 | REST | Simple request/response; transactions keep grades and achievements consistent. |
 | World Service | TypeScript 5 | Node.js 22 + Express 4, MongoDB 7 | REST | The campus map is read-heavy and document-shaped (rooms, nodes, spawn configs with nested fields), so MongoDB fits without joins. TypeScript types keep the map models consistent. |
 | Zombie Service | JavaScript (ES2022) | Node.js 22 + Express 4, MongoDB 7 | REST | Small config-only service: each zombie type is one document with nested stats, behavior, sprite and abilities. Plain JavaScript keeps it light. |
 | Resource Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Mostly I/O-bound database work. PostgreSQL transactions with `actionId` as primary key make gather/consume idempotent, so a retry after a reconnect never awards twice. Same language as Player Service. |
 | Base Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Simple request/response CRUD; transactions keep upgrades consistent. Pays for upgrades through Resource Service (idempotent consume, refund if the local save fails). Same language as Player Service. |
-| Crafting Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/crafting-service`) | _TBD_ | REST | _TBD_ |
+| Crafting Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST | Orchestrates Resource (consume) and Player (deliver item), so it is mostly I/O waiting on other services, which Node handles well. Recipes have nested ingredients and unlock conditions (JSONB). The craft is a short saga keyed by `craftId`: idempotent consume, idempotent grant, refund on failure. |
  
 ## 5. Communication Contract
  
@@ -85,6 +116,48 @@ graph TD
 - **Event notifications.** State changes other services care about (e.g. `ExamPassed`) are sent as HTTP POST notifications to the owning service (to be replaced by a message broker in later labs if required).
 - **Idempotency.** Requests that award or consume something carry an id (`actionId`, `examId`) so retries never apply twice.
 - **Format.** JSON, UTF-8, ids are UUID strings, timestamps are ISO 8601 (UTC). Errors use `{ "error": "CODE", "message": "text" }`.
+- **Through the gateway (Lab 2).** Services call each other at `http://gateway:8081/<service>/...` (internal listener), never directly. See 5.0.
+
+### 5.0 API Gateway (owner: Alexandru Bujor) — port 8080
+
+Every REST call goes through the gateway: clients use `http://localhost:8080/<service>/<path>`, services use the internal listener `http://gateway:8081/<service>/<path>`. The gateway forwards it to `<service>/<path>`: `GET /game/sessions` → Game `GET /sessions`.
+
+| Prefix | Service |
+|---|---|
+| `/game` | Game Service (3001) |
+| `/exam` | Exam Service (3002) |
+| `/world` | World Service (3011) |
+| `/zombie` | Zombie Service (3012) |
+| `/resource` | Resource Service |
+| `/base` | Base Service |
+| `/crafting` | Crafting Service |
+| `/player` | Player Service |
+
+| Method | Path | Request body | Success response |
+|---|---|---|---|
+| GET | `/health` | – | `200 { "status": "ok", "service": "gateway", "version" }` |
+| GET | `/health/services` | – | `200 { "gateway": "up", "services": { "game": "up", ... } }` |
+| POST | `/auth/token` | `{ "playerId", "role": "player" \| "admin", "adminKey"? }` | `200 { "accessToken", "tokenType": "Bearer", "expiresIn" }` |
+| POST | `/ws/negotiate` | `{ "sessionId", "playerId"? }` | `200 { "wsUrl", "expiresAt", "expiresIn" }` |
+| any | `/<service>/<path>` | forwarded as is | the service's response |
+
+**Authorization (at the gateway only).**
+- Clients send `Authorization: Bearer <JWT>`: either a gateway token (`POST /auth/token`; HS256, claims `sub` = player id, `role`, `iss`, `exp`) or a Player Service token (`POST /player/auth/login`, checked with `PLAYER_JWT_SECRET`, role `player`). Services call each other through the internal listener `http://gateway:8081/<service>` (Docker network only, trusted as role `service`); Game and Exam also send `X-Internal-Key: <INTERNAL_API_KEY>`.
+- `POST /player/auth/login` and `POST /player/auth/register` are public (no token needed).
+- The gateway **removes** `Authorization`, `X-Internal-Key` and any client-sent `X-User-Id`/`X-User-Role`, and adds `X-User-Id`, `X-User-Role` (`player`, `admin`, `service`), `X-Request-Id`, `X-Forwarded-For`, `X-Forwarded-Prefix`. Services never validate tokens.
+- Admin-only: `POST`/`DELETE /exam/courses...`, `DELETE /game/sessions/{id}`.
+
+**WebSocket negotiation.** `POST /ws/negotiate` checks the token and that the player is in the Game session, then returns `ws://localhost:3001/ws?sessionId=…&playerId=…&token=…`. The client connects to Game directly; Game verifies the token with the shared `WS_TOKEN_SECRET` (`base64url({"sid","pid","exp"}).base64url(HMAC-SHA256)`, valid 60 s).
+
+**Limits.** Every service and the gateway have a request timeout and a concurrent request limit.
+
+| Where | Timeout | Too many requests | Downstream down |
+|---|---|---|---|
+| Gateway | **504** `GATEWAY_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `BAD_GATEWAY` |
+| Game, Exam | **408** `REQUEST_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `UPSTREAM_ERROR` |
+
+**Gateway errors:** `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_INTERNAL_KEY` (401); `FORBIDDEN` (403); `SERVICE_NOT_FOUND` (404); `PLAYER_NOT_IN_SESSION` (409); `INVALID_BODY`, `INVALID_ROLE` (400); `TOO_MANY_REQUESTS` (429); `BAD_GATEWAY` (502); `GATEWAY_TIMEOUT` (504).
+
 ### 5.2 Game Service (owner: Alexandru Bujor) — port 3001
  
 | Method | Path | Request body | Success response |
@@ -137,7 +210,13 @@ graph TD
 - **Encounter rules:** a `PROFESSOR` zombie starts an exam (`EXAM_STARTED`). A `TOURIST` zombie steals 10 XP by day (`XP_STOLEN`) and 5 resources by night (`RESOURCES_STOLEN`).
 - **WebSocket:** `ACTION_COMPLETED` data also includes `playerId`.
 - **Error codes:** `VALIDATION_ERROR`, `INVALID_JSON`, `INVALID_ACTION_TYPE` (400); `SESSION_NOT_FOUND`, `ACTION_NOT_FOUND`, `PLAYER_NOT_FOUND`, `ZOMBIE_NOT_FOUND` (404); `SESSION_FULL`, `SESSION_FINISHED`, `SESSION_NOT_ACTIVE`, `PLAYER_NOT_IN_SESSION`, `ACTION_IN_PROGRESS`, `ACTION_NOT_IN_PROGRESS`, `ROOM_NOT_AVAILABLE` (409); `UPSTREAM_ERROR` (502).
-**Calls Game Service makes to other services** (mocked in Lab 1, to confirm with each owner):
+#### Lab 2 updates
+- Reached through the gateway at `/game/...`. Port 3001 stays published only for the direct WebSocket.
+- **WebSocket:** `ws://localhost:3001/ws?sessionId=&playerId=&token=`. Get the URL from the gateway's `POST /ws/negotiate`. Without a valid token Game answers **401** `INVALID_WS_TOKEN`.
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- Outgoing calls use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`. World rooms (`{id}`) and Zombie types (`{id, code}`) are read in their real shape.
+
+**Calls Game Service makes to other services** (through the gateway from Lab 2):
  
 | Target | Call | Expected response |
 |---|---|---|
@@ -214,6 +293,11 @@ graph TD
 | `HAT_TRICK` | Hat Trick | 3 courses passed | 150 |
 | `DIPLOMA_SECURED` | Diploma Secured | Every course passed | 500 |
  
+#### Lab 2 updates
+- Reached only through the gateway at `/exam/...` (no published port). `POST`/`DELETE /exam/courses...` need an admin token.
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- Outgoing calls (World `ExamPassed`, Player rewards) use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`.
+
 ### 5.4 Resource Service (owner: Mitu Vladlen) — port 3005
  
 | Method | Path | Request body | Success response |
@@ -430,17 +514,217 @@ Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATIO
 |---|---|---|
 | Game | `GET /zombie-types` | Zombie configs for the cycle |
 
-### 5.8 Crafting, Player
-_To be filled in by the owner (Gabriel) in the same format._
+### 5.8 Player Service (owner: Moraru Gabriel) — port 3032
 
-**Until then, both run as WireMock stand-ins** (`mocks/`, image `wiremock/wiremock:3.9.1`). They are **not** the real services: no database, no state, every response has `"mock": true` and an `X-Mock` header. They only implement the calls other services already make:
 
-| Stand-in | Port | Endpoints |
+JSON over HTTP, UTF-8. Ids are UUIDs, timestamps ISO 8601 (UTC).
+Errors: `{ "error": "CODE", "message": "text", "details"?: [...] }`.
+
+**Auth:** `POST /auth/login` returns a JWT. Routes marked 🔒 need `Authorization: Bearer <token>`,
+and the token must belong to the player in the path (otherwise `403 FORBIDDEN`).
+Routes without 🔒 are also called by other services (Game, Exam, Crafting, Resource, Base).
+
+#### Auth
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| GET | `/health` | – | `200 { "status": "ok", "service": "player-service", "storage": "postgres" }` |
+| POST | `/auth/register` | `{ "username": "dave", "email": "dave@faf.utm.md", "password": "min 8 chars", "displayName"?: "Dave" }` | `201 { "player": Player, "token": "jwt" }`, `400`, `409 USERNAME_TAKEN / EMAIL_TAKEN` |
+| POST | `/auth/login` | `{ "username": "alice or email", "password": "password123" }` | `200 { "player": Player, "token": "jwt" }` (sets presence `online`), `401 INVALID_CREDENTIALS` |
+| POST | `/auth/logout` 🔒 | – | `204` (sets presence `offline`) |
+| GET | `/auth/me` 🔒 | – | `200 Player` |
+
+#### Players, presence, XP
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| GET | `/players` | query `presence=online\|offline\|in_game`, `q=<text>` (optional) | `200 Player[]` |
+| GET | `/players/{playerId}` | – | `200 Player`, `404 PLAYER_NOT_FOUND` |
+| PATCH | `/players/{playerId}` 🔒 | any of `{ "displayName", "bio", "avatarUrl" (or null), "email" }` | `200 Player`, `400`, `403`, `409 EMAIL_TAKEN` |
+| DELETE | `/players/{playerId}` 🔒 | – | `204`, `403` |
+| PUT | `/players/{playerId}/presence` 🔒 | `{ "status": "online \| offline \| in_game" }` | `200 { "playerId", "presence", "lastSeenAt" }` |
+| PATCH | `/players/{playerId}/xp` | `{ "delta": 50 }` (negative allowed, XP never below 0) | `200 XpResult`, `400`, `404` |
+| POST | `/players/{playerId}/rewards` | `{ "source": "ACHIEVEMENT", "code": "SURVIVED_THE_PUMPKIN", "xp": 50, "items"?: [ItemQuantity] }` | `201 XpResult + { "duplicate": false }`; `200` with `"duplicate": true` if this (source, code) was already given; `404 PLAYER_NOT_FOUND / ITEM_NOT_FOUND` |
+
+```json
+// Player
+{ "playerId": "uuid", "username": "alice", "email": "alice@faf.utm.md", "displayName": "Alice",
+  "bio": "string", "avatarUrl": "string | null", "xp": 120, "level": 2,
+  "xpForNextLevel": 300, "xpToNextLevel": 180, "presence": "online | offline | in_game",
+  "lastSeenAt": "ISO | null", "createdAt": "ISO", "updatedAt": "ISO" }
+
+// XpResult
+{ "playerId": "uuid", "delta": 50, "xp": 170, "previousLevel": 2, "level": 2, "leveledUp": false }
+```
+
+**Levels:** reaching level L needs `50 × L × (L − 1)` total XP (L2 = 100, L3 = 300, L4 = 600, L5 = 1000).
+
+#### Friends
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| GET | `/players/{playerId}/friends` | query `status=pending\|accepted` (optional) | `200 Friend[]` |
+| POST | `/players/{playerId}/friends` 🔒 | `{ "friendId": "uuid" }` | `201 Friend` (request sent); `200 Friend` (accepted, if they had already asked you); `409 ALREADY_FRIENDS / FRIEND_REQUEST_EXISTS` |
+| POST | `/players/{playerId}/friends/{friendId}/accept` 🔒 | – | `200 Friend`, `404 FRIEND_REQUEST_NOT_FOUND` |
+| DELETE | `/players/{playerId}/friends/{friendId}` 🔒 | – | `204` (unfriend / decline / withdraw), `404 FRIENDSHIP_NOT_FOUND` |
+
+```json
+// Friend
+{ "playerId": "uuid", "username": "bob", "displayName": "Bob", "presence": "online",
+  "status": "pending | accepted", "direction": "incoming | outgoing",
+  "createdAt": "ISO", "acceptedAt": "ISO | null" }
+```
+
+#### Item catalog and inventory
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| GET | `/items` | query `category=consumable\|cosmetic\|equipment` (optional) | `200 Item[]` |
+| GET | `/items/{code}` | – | `200 Item`, `404 ITEM_NOT_FOUND` |
+| POST | `/items` | `{ "code": "GOLDEN_AXE", "name": "Golden Axe", "category": "cosmetic", "description"?: "..." }` | `201 Item`, `409 ITEM_EXISTS` |
+| PUT | `/items/{code}` | `{ "name", "category", "description"? }` | `200 Item`, `404` |
+| DELETE | `/items/{code}` | – | `204`, `404`, `409 ITEM_IN_USE` (someone owns it) |
+| GET | `/players/{playerId}/inventory` | – | `200 { "playerId", "items": InventoryItem[] }` |
+| POST | `/players/{playerId}/inventory` | `{ "itemCode": "BARRICADE_KIT", "quantity": 1, "grantId"?: "craft-uuid", "source"?: "crafting" }` | `201 Grant`; `200` with `"duplicate": true` if the `grantId` was already used; `404 ITEM_NOT_FOUND` |
+| POST | `/players/{playerId}/inventory/{itemCode}/use` 🔒 | `{ "quantity": 1 }` (optional, default 1) | `200 { "playerId", "itemCode", "used", "remaining" }`, `409 INSUFFICIENT_ITEMS` |
+
+```json
+// Item          (seeded: COFFEE, ENERGY_DRINK, DAVIDAN_SANDWICH, FAF_HOODIE, PUMPKIN_HAT,
+//                BARRICADE_KIT, IMPROVISED_WEAPON, EXAM_CHEAT_SHEET, ENERGY_BOOSTER, ZOMBIE_DETECTOR)
+{ "code": "COFFEE", "name": "Coffee", "category": "consumable | cosmetic | equipment", "description": "..." }
+
+// InventoryItem
+{ "itemCode": "COFFEE", "name": "Coffee", "category": "consumable", "quantity": 3 }
+
+// Grant
+{ "playerId": "uuid", "itemCode": "BARRICADE_KIT", "quantity": 1, "grantId": "string | null",
+  "duplicate": false, "inventory": InventoryItem[] }
+```
+
+#### Trades
+
+Trades work between any two players, including players in different lobbies/universities.
+1. The sender proposes a trade. The service checks that the sender **owns** the offered items.
+2. The receiver accepts it. In **one database transaction**, the service locks both players' inventory
+   rows and checks that **both** sides still own their items. Only then does it move everything.
+   If anything is missing, nothing moves (`409 INSUFFICIENT_ITEMS`) and the trade stays `pending`.
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| POST | `/trades` 🔒 (sender) | `{ "toPlayerId": "uuid", "offered": [ItemQuantity], "requested": [ItemQuantity], "message"?: "..." }` | `201 Trade`, `400`, `404 PLAYER_NOT_FOUND / ITEM_NOT_FOUND`, `409 INSUFFICIENT_ITEMS` |
+| GET | `/trades/{tradeId}` | – | `200 Trade`, `404 TRADE_NOT_FOUND` |
+| GET | `/players/{playerId}/trades` | query `status=pending\|completed\|rejected\|cancelled` (optional) | `200 Trade[]` |
+| POST | `/trades/{tradeId}/accept` 🔒 (receiver) | – | `200 Trade` (`completed`), `403`, `409 INSUFFICIENT_ITEMS / TRADE_NOT_PENDING` |
+| POST | `/trades/{tradeId}/reject` 🔒 (receiver) | – | `200 Trade` (`rejected`), `409 TRADE_NOT_PENDING` |
+| POST | `/trades/{tradeId}/cancel` 🔒 (sender) | – | `200 Trade` (`cancelled`), `409 TRADE_NOT_PENDING` |
+
+```json
+// ItemQuantity
+{ "itemCode": "COFFEE", "quantity": 2 }
+
+// Trade
+{ "tradeId": "uuid", "fromPlayerId": "uuid", "toPlayerId": "uuid",
+  "offered": [ItemQuantity], "requested": [ItemQuantity], "message": "string | null",
+  "status": "pending | completed | rejected | cancelled", "createdAt": "ISO", "resolvedAt": "ISO | null" }
+
+// INSUFFICIENT_ITEMS details
+[ { "playerId": "uuid", "itemCode": "DAVIDAN_SANDWICH", "required": 2, "available": 1 } ]
+```
+
+#### Error codes
+`VALIDATION_ERROR`, `INVALID_JSON` (400) · `UNAUTHORIZED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS` (401) ·
+`FORBIDDEN` (403) · `NOT_FOUND`, `PLAYER_NOT_FOUND`, `ITEM_NOT_FOUND`, `TRADE_NOT_FOUND`,
+`FRIEND_REQUEST_NOT_FOUND`, `FRIENDSHIP_NOT_FOUND` (404) · `USERNAME_TAKEN`, `EMAIL_TAKEN`, `ITEM_EXISTS`,
+`ITEM_IN_USE`, `ALREADY_FRIENDS`, `FRIEND_REQUEST_EXISTS`, `INSUFFICIENT_ITEMS`, `TRADE_NOT_PENDING` (409) ·
+`INTERNAL_ERROR` (500)
+
+#### Calls Player Service receives from other services
+
+| From | Call | When |
 |---|---|---|
-| player-service | 3032 | `GET /health`, `GET /players`, `GET /players/{uuid}` (404 `PLAYER_NOT_FOUND` if not a UUID), `PATCH /players/{uuid}/xp { delta }`, `POST /players/{uuid}/rewards { source, code, xp }` |
-| crafting-service | 3031 | `GET /health`, `GET /recipes`, `POST /craft { playerId, recipeId }` |
+| Game, Resource, Base, Crafting | `GET /players/{id}` | Check that a player exists (Crafting also reads `level`) |
+| Game | `PATCH /players/{id}/xp { delta }` | XP earned, or stolen by a Tourist Zombie (negative delta) |
+| Exam | `POST /players/{id}/rewards { source, code, xp }` | An achievement is unlocked (idempotent per source + code) |
+| Crafting | `POST /players/{id}/inventory { itemCode, quantity, grantId, source }` | Deliver a crafted item (`grantId` = craftId, idempotent) |
 
-The real Player Service must keep these three calls (or the callers must be updated): `GET /players/{id}` (Game, Resource, Base), `PATCH /players/{id}/xp` (Game), `POST /players/{id}/rewards` (Exam).
+Player Service calls no other service.
+
+### 5.9 Crafting Service (owner: Moraru Gabriel) — port 3031
+
+
+JSON over HTTP, UTF-8. Ids are UUIDs, timestamps ISO 8601 (UTC).
+Errors: `{ "error": "CODE", "message": "text", "details"?: [...] }`.
+
+| Method | Path | Request body | Response |
+|---|---|---|---|
+| GET | `/health` | – | `200 { "status": "ok", "service": "crafting-service", "storage", "player", "resource", "exam", "world" }` (client modes) |
+| GET | `/recipes` | – | `200 Recipe[]` |
+| POST | `/recipes` | `RecipeInput` | `201 Recipe`, `400`, `409 RECIPE_EXISTS` |
+| GET | `/recipes/{recipeId}` | – | `200 Recipe`, `404 RECIPE_NOT_FOUND` |
+| PUT | `/recipes/{recipeId}` | `RecipeInput` | `200 Recipe`, `400`, `404`, `409 RECIPE_EXISTS` |
+| DELETE | `/recipes/{recipeId}` | – | `204`, `404` |
+| GET | `/players/{playerId}/recipes` | – | `200 (Recipe + { "unlocked": bool, "missing": MissingCondition[] })[]`, `404 PLAYER_NOT_FOUND` |
+| POST | `/craft` | `{ "playerId": "uuid", "recipeId": "uuid", "craftId"?: "uuid" }` | `201 Craft + { "duplicate": false }`; `200` with `"duplicate": true` for a repeated `craftId`; `404 PLAYER_NOT_FOUND / RECIPE_NOT_FOUND`; `409 RECIPE_LOCKED / INSUFFICIENT_RESOURCES / CRAFT_ID_REUSED / CRAFT_FAILED`; `502 UPSTREAM_ERROR` |
+| GET | `/crafts/{craftId}` | – | `200 Craft`, `404 CRAFT_NOT_FOUND` |
+| GET | `/players/{playerId}/crafts` | – | `200 Craft[]` (newest first) |
+
+```json
+// RecipeInput  (repeated resource types are merged; output.quantity defaults to 1; every unlock field is optional)
+{ "name": "Barricade Kit", "description": "optional",
+  "ingredients": [ { "resourceTypeId": "wood", "amount": 3 }, { "resourceTypeId": "metal_scraps", "amount": 2 } ],
+  "output": { "itemCode": "BARRICADE_KIT", "quantity": 1 },
+  "unlock": { "minLevel": 2, "requiredCourseId": "uuid", "requiredWingId": "id", "requiredResourceTypeId": "chemicals" } }
+
+// Recipe
+{ "recipeId": "uuid", ...RecipeInput, "createdAt": "ISO", "updatedAt": "ISO" }
+
+// MissingCondition  (also the details of 409 RECIPE_LOCKED)
+{ "condition": "minLevel | requiredCourseId | requiredWingId | requiredResourceTypeId",
+  "required": 2, "actual": 1 }
+
+// Craft
+{ "craftId": "uuid", "playerId": "uuid", "recipeId": "uuid", "recipeName": "Barricade Kit",
+  "consumed": [ { "resourceTypeId": "wood", "amount": 3 } ], "produced": { "itemCode": "BARRICADE_KIT", "quantity": 1 },
+  "status": "pending | completed | failed", "failureReason": "string | null",
+  "createdAt": "ISO", "completedAt": "ISO | null" }
+
+// 409 INSUFFICIENT_RESOURCES details
+[ { "resourceTypeId": "metal_scraps", "required": 2, "available": 0 } ]
+```
+
+#### Lab 1 notes: how a craft stays atomic
+The materials live in Resource Service and the inventory in Player Service, so a craft is a short
+saga with the `craftId` as the idempotency key everywhere:
+
+1. Check the unlock conditions (Player level, Exam, World, Resource). If one fails: `409 RECIPE_LOCKED`. Nothing has changed.
+2. Save the craft as `pending`.
+3. `POST /resources/consume { actionId: craftId, ... }`. Resource takes **all** ingredients in one transaction, or none (`409 INSUFFICIENT_RESOURCES`, craft `failed`).
+4. `POST /players/{id}/inventory { grantId: craftId, ... }` delivers the item.
+5. If step 4 fails, the service refunds with `POST /resources/grant { actionId: craftId + ":refund" }`, marks the craft `failed` and returns `502`.
+   The player ends with both the materials and no item, or the item and no materials. Never one side only.
+6. Mark the craft `completed`.
+
+Retrying a `craftId` returns the stored result and never charges twice. A `pending` craft is safe to
+resume because steps 3 and 4 are idempotent. A `failed` craftId cannot be reused (`409 CRAFT_FAILED`).
+
+#### Error codes
+`VALIDATION_ERROR`, `INVALID_JSON` (400) · `NOT_FOUND`, `RECIPE_NOT_FOUND`, `PLAYER_NOT_FOUND`, `CRAFT_NOT_FOUND` (404) ·
+`RECIPE_EXISTS`, `RECIPE_LOCKED`, `INSUFFICIENT_RESOURCES`, `CRAFT_ID_REUSED`, `CRAFT_FAILED` (409) ·
+`INTERNAL_ERROR` (500) · `UPSTREAM_ERROR` (502)
+
+#### Calls Crafting Service makes to other services (mocked in Lab 1)
+
+| Target | Call | Expected response |
+|---|---|---|
+| Player | `GET /players/{playerId}` | `200 { "playerId", "level" }`, `404` = not found |
+| Player | `POST /players/{playerId}/inventory { itemCode, quantity, grantId, source: "crafting" }` | `201`/`200` (idempotent by `grantId`) |
+| Resource | `POST /resources/consume { actionId, playerId, items: [{ resourceTypeId, amount }], reason }` | `201`/`200`, `409 INSUFFICIENT_RESOURCES` with details |
+| Resource | `POST /resources/grant { actionId: "<craftId>:refund", playerId, items, source: "crafting-refund" }` | `201`/`200` |
+| Resource | `GET /players/{playerId}/resources/{resourceTypeId}` | `200 { "quantity" }`, `404` = 0 |
+| Exam | `GET /players/{playerId}/progress` | `200 { "grades": [ { "courseId", "grade" } ] }` (passed = grade ≥ 5) |
+| World | `GET /wings/{wingId}` | `200 { "unlocked": bool }`, `404` = locked |
+
+Nobody calls Crafting Service yet. The client (or Game Service) calls `POST /craft`.
  
 ## 6. GitHub Workflow
  
@@ -460,17 +744,16 @@ The real Player Service must keep these three calls (or the callers must be upda
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`.
 - Every PR uses the template in `.github/pull_request_template.md` (description, affected services, linked task, how it was tested).
 - **Test coverage:** each service must keep unit test coverage at **80% or more**; PRs that lower it below 80% are not merged.
-- **Versioning:** Semantic Versioning `MAJOR.MINOR.PATCH`. DockerHub tags match the version (`<user>/<service>:1.0.0`). Bump MINOR for new endpoints, PATCH for fixes, MAJOR for contract-breaking changes.
+- **Versioning:** Semantic Versioning `MAJOR.MINOR.PATCH`, with MAJOR = lab number from Lab 2 on (`2.0.0`). DockerHub tags match the version (`<user>/<service>:2.0.0`) and `latest` follows `main`. Bump MINOR for new endpoints, PATCH for fixes, MAJOR for contract-breaking changes.
 - `development` is merged into `main` before each lab presentation.
 - Never commit `.env` files, API keys or `node_modules/`; commit `.env.example` with placeholder values instead.
 ### Repository structure
 ```
 kahoots-with-the-undead/
-├── services/        # private microservice repos, linked as git submodules
+├── services/        # private microservice repos + gateway, linked as git submodules
 ├── postman/         # Postman collections, one per service
 ├── deploy/          # docker-compose.yml (DockerHub images only)
 ├── db-scripts/      # seed scripts, one folder per service
-├── mocks/           # WireMock stand-ins for services that are not built yet
 └── .github/         # PR template
 ```
  
@@ -486,25 +769,35 @@ git submodule update --init --recursive
  
 | Service | DockerHub | Private Repo (submodule) |
 |---|---|---|
-| Player Service | _TBD_ (stand-in: `wiremock/wiremock:3.9.1`, see `mocks/player-service`) | _TBD_ |
-| Game Service | [alexandrubujor1/game-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
-| Exam Service | [alexandrubujor1/exam-service:1.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
+| **API Gateway** | [alexandrubujor1/gateway:2.0.0](https://hub.docker.com/r/alexandrubujor1/gateway) | [gateway](https://github.com/kahoots-undead-faf-team-6/gateway) (private) |
+| Player Service | [gabriel120405/player-service:1.0.0](https://hub.docker.com/r/gabriel120405/player-service) | [player-service](https://github.com/kahoots-undead-faf-team-6/player-service) (private) |
+| Game Service | [alexandrubujor1/game-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
+| Exam Service | [alexandrubujor1/exam-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
 | World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
 | Zombie Service | [mihaim888/zombie-service:2.0.0](https://hub.docker.com/r/mihaim888/zombie-service) | [zombie-service](https://github.com/kahoots-undead-faf-team-6/zombie-service) (private) |
 | Resource Service | [mituvladlen/resource-service:1.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
 | Base Service | [mituvladlen/base-service:1.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
-| Crafting Service | _TBD_ | _TBD_ |
+| Crafting Service | [gabriel120405/crafting-service:1.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
  
+**Run requirements, Player + Crafting:** Docker only. The images are multi-arch (linux/amd64 + linux/arm64), so they run on Intel/AMD and Apple Silicon.
+With no environment, both start with in-memory storage and seed data: `docker run -p 3032:3032 gabriel120405/player-service:1.0.0`,
+`docker run -p 3031:3031 gabriel120405/crafting-service:1.0.0`. For PostgreSQL set `STORAGE=postgres` and `DATABASE_URL`
+(Player also needs `JWT_SECRET`). Crafting picks mock or real calls with `PLAYER_CLIENT`, `RESOURCE_CLIENT`, `EXAM_CLIENT`,
+`WORLD_CLIENT` = `mock|http` plus `<NAME>_SERVICE_URL`. Without Docker: Node.js 22+ and `./run.sh` in each repo.
+
 ## 8. Postman Collections
  
 Postman collections for each service live in [`/postman`](./postman).
  
+- `gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game and Exam flows, WebSocket negotiation, 401/403/404 and the limits
 - `game-service.postman_collection.json`: Game Service (port 3001)
 - `world-service.postman_collection.json`: World Service (port 3011)
 - `zombie-service.postman_collection.json`: Zombie Service (port 3012)
 - `exam-service.postman_collection.json`: Exam Service (port 3002)
 - `resource-service.postman_collection.json`: Resource Service (port 3005)
 - `base-service.postman_collection.json`: Base Service (port 3006)
+- `player-service.postman_collection.json`: Player Service (port 3032). Logs in as the seeded players and registers a new one each run
+- `crafting-service.postman_collection.json`: Crafting Service (port 3031)
 Import a collection and run it with the Collection Runner. Player ids are generated on each run, so the collections can be run repeatedly.
  
 ## 9. Project Board
@@ -515,40 +808,58 @@ Track lab tasks on the linked [GitHub Project](#).
  
 **Requirements:** Docker Engine 24+ with Docker Compose v2.
  
-| Service | Port | Database | Seed data |
+| Service | Reached at | Database | Seed data |
 |---|---|---|---|
-| World Service | 3011 | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
-| Zombie Service | 3012 | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
-| Game Service | 3001 | PostgreSQL 16 (`game-db`) | `db-scripts/game-service/` |
-| Exam Service | 3002 | PostgreSQL 16 (`exam-db`) | `db-scripts/exam-service/` |
-| Resource Service | 3005 | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
-| Base Service | 3006 | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
-| Crafting Service (stand-in) | 3031 | none (WireMock) | – |
-| Player Service (stand-in) | 3032 | none (WireMock) | – |
+| **API Gateway** | **`localhost:8080`** (clients), `gateway:8081` (services, not published) | none | – |
+| Game Service | `localhost:8080/game`; `localhost:3001` only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
+| Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
+| World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
+| Zombie Service | `localhost:8080/zombie` | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
+| Resource Service | `localhost:8080/resource` | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
+| Base Service | `localhost:8080/base` | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
+| Crafting Service | `localhost:8080/crafting` | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
+| Player Service | `localhost:8080/player` | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
 
-Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds database credentials and optional `*_VERSION` overrides.
+From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-cp deploy/.env.example deploy/.env    # set every password
+cp deploy/.env.example deploy/.env    # set every password and the gateway secrets
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
-curl http://localhost:3001/health
-curl http://localhost:3002/health
-curl http://localhost:3005/health
-curl http://localhost:3006/health
-curl http://localhost:3011/health
-curl http://localhost:3012/health
-curl http://localhost:3031/health   # crafting stand-in
-curl http://localhost:3032/health   # player stand-in
+curl http://localhost:8080/health
+curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
+
+# a gateway token ...
+TOKEN=$(curl -s -X POST localhost:8080/auth/token -H 'Content-Type: application/json' \
+  -d '{"playerId":"aaaaaaaa-0000-4000-8000-000000000001"}' | sed 's/.*"accessToken":"\([^"]*\)".*/\1/')
+# ... or log in through Player Service (public route; seeded users alice, bob, carol / password123)
+curl -s -X POST localhost:8080/player/auth/login -H 'Content-Type: application/json' -d '{"username":"alice","password":"password123"}'
+
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/game/sessions
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/world/rooms
+curl -i localhost:8080/game/sessions          # 401 MISSING_TOKEN
 ```
 
-**Who calls whom in the compose (Lab 1):**
-- Game → Exam, World, Zombie: real calls. Game → Player: the stand-in. Game → Resource: Game's built-in mock, because Resource has no `POST /resources/steal` yet and its gather body differs (`amount` instead of `actionType`). To be aligned in Lab 2.
-- Exam → World (`ExamPassed`): real call. Exam → Player (rewards): the stand-in.
-- Base → Resource: real call. Resource and Base → Player/World: their built-in mocks (`CLIENT_MODE=mock`).
- 
-Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service>`.
+To run a teammate's own Postman collection, set its `baseUrl` to `http://localhost:8080/<service>` and add a Bearer token (Authorization tab of the collection).
 
-World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=... node seed.js`, same for `zombie-service`. Health checks: `curl http://localhost:3011/health` and `curl http://localhost:3012/health`.
+**Who calls whom (Lab 2): every call goes through the gateway's internal listener `http://gateway:8081/<service>`.**
+
+| From | To | Mode | Notes |
+|---|---|---|---|
+| Game | Exam, World, Zombie, Player | real | Game reads World's `{id}` rooms and Zombie's `{id, code}` types |
+| Game | Resource | Game's mock | Resource has no `POST /resources/steal` and gather takes `amount` |
+| Exam | World (`ExamPassed`), Player (rewards) | real | |
+| Base | Resource | real | `RESOURCE_SERVICE_URL=http://gateway:8081/resource/resources` (Base posts `{URL}/consume`) |
+| Base | Player, World | Base's mocks | Base's players are `player-1..3` and rooms `FAF_CAB`, not Player/World ids |
+| Resource | Player, World | Resource's mocks (`CLIENT_MODE=mock`) | same `player-1..3` ids; World has `/resource-nodes/{id}`, Resource calls `/nodes/{id}` |
+| Crafting | Player | real | level check + delivers the crafted item |
+| Crafting | Resource | Crafting's mock | Resource's mock only knows `player-1..3` |
+| Player | – | – | 🔒 routes take the caller from `X-User-Id` (`TRUST_GATEWAY_HEADERS=true`, player-service PR #4) |
+
+Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `http` is enough once the ids or paths above are aligned.
+
+Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
+
+World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012. Without the seed, Game finds no rooms or zombie types.
  
 ## 11. Changelog
  
@@ -556,3 +867,5 @@ World and Zombie use MongoDB and are seeded by hand (they skip if the database i
 - **Lab 1 (v1.0.0), Resource + Base:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocks for Player and World; Base Service calls Resource Service over HTTP (idempotent consume/grant with refund on failure).
 - **Lab 1 (v2.0.0), World + Zombie:** CRUD services in TypeScript (World) and JavaScript (Zombie) on Node.js 22 + Express, MongoDB per service with named volumes, public DockerHub images, seed scripts, Postman collections, unit test coverage of ~100%, mocked Exam Service for `ExamPassed` behind `ExamServiceClient`.
 - **Lab 1, team deployment:** one `deploy/docker-compose.yml` for the whole team (DockerHub images only, a database and named volume per service), combined `.env.example`, Resource/Base Postman collections and db-scripts, Game and Exam submodules, WireMock stand-ins for Player and Crafting.
+- **Lab 1 (v1.0.0), Player + Crafting:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with named volumes, multi-arch public DockerHub images, seed scripts (3 players with inventories, 5 recipes), Postman collections, unit test coverage of ~99% (same tests on the in-memory and PostgreSQL stores), atomic trades (row locks in one transaction) and crafting (idempotent consume + grant, refund on failure). Resource, Exam and World are mocked behind client interfaces in Crafting. The WireMock stand-ins are removed.
+- **Lab 2 (v2.0.0), API Gateway + Game + Exam:** new `gateway` service in Python (FastAPI) as the single entry point: routes to all 8 services, JWT authorization with the `Authorization` header stripped before forwarding, `X-Internal-Key` for service-to-service calls, WebSocket negotiation with a direct signed connection to Game, timeout (504) and concurrent request limit (429). Game and Exam call other services through the gateway and have their own timeout (408) and limit (429). GitHub Actions in all three repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`. Gateway Postman collection and updated architecture diagram.
