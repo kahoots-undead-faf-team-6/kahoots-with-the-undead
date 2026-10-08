@@ -128,7 +128,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (!pm.collectionVariables.get(\"playerId\")) { pm.collectionVariables.set(\"playerId\", pm.variables.replaceIn(\"{{$guid}}\")); }"
+                  "if (!pm.collectionVariables.get(\"playerId\")) { pm.collectionVariables.set(\"playerId\", \"aaaaaaaa-0000-4000-8000-000000000001\"); } // seeded alice in Player Service"
                 ]
               }
             },
@@ -935,7 +935,512 @@
       ]
     },
     {
-      "name": "7. Cleanup",
+      "name": "7. Across services (World + Zombie seeded)",
+      "description": "A full game through the gateway: Player login, World rooms, Zombie types, Game -> Exam, Game -> Player. Needs the World and Zombie seed scripts (README section 10).",
+      "item": [
+        {
+          "name": "Player login (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/auth/login",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"playerToken\", pm.response.json().token);",
+                  "pm.collectionVariables.set(\"alice\", pm.response.json().player.playerId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me with the Player token (gateway -> X-User-Id)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/player/auth/me",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"same player\", () => pm.expect(pm.response.json().playerId).to.eql(pm.collectionVariables.get(\"alice\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zombie types (Zombie Service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/zombie/zombie-types",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "zombie",
+                "zombie-types"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test(\"professor and tourist exist\", () => { pm.expect(t.find(z => z.code === \"PROFESSOR\")).to.be.ok; pm.expect(t.find(z => z.code === \"TOURIST\")).to.be.ok; });",
+                  "pm.collectionVariables.set(\"professorId\", t.find(z => z.code === \"PROFESSOR\").id);",
+                  "pm.collectionVariables.set(\"touristId\", t.find(z => z.code === \"TOURIST\").id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Available rooms (World Service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/world/rooms?available=true",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "available",
+                  "value": "true"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"rooms seeded\", () => pm.expect(pm.response.json().length).to.be.above(0));",
+                  "pm.collectionVariables.set(\"roomId\", pm.response.json()[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Across services\",\n  \"maxPlayers\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"flowSessionId\", pm.response.json().sessionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Join (Game -> Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{flowSessionId}}/join",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{flowSessionId}}",
+                "join"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{alice}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"active\", () => pm.expect(pm.response.json().status).to.eql(\"active\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Barricade a World room (Game -> World)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{flowSessionId}}/actions",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{flowSessionId}}",
+                "actions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{alice}}\",\n  \"type\": \"BARRICADE_ROOM\",\n  \"targetId\": \"{{roomId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Professor zombie (Game -> Zombie, Game -> Exam)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{flowSessionId}}/encounters",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{flowSessionId}}",
+                "encounters"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{alice}}\",\n  \"zombieId\": \"{{professorId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"exam started\", () => pm.expect(pm.response.json().outcome).to.eql(\"EXAM_STARTED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tourist zombie (Game -> Player XP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{flowSessionId}}/encounters",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{flowSessionId}}",
+                "encounters"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{alice}}\",\n  \"zombieId\": \"{{touristId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"XP or resources stolen\", () => pm.expect([\"XP_STOLEN\",\"RESOURCES_STOLEN\"]).to.include(pm.response.json().outcome));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice's exams (Exam Service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/players/{{alice}}/exams",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "players",
+                "{{alice}}",
+                "exams"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{playerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"exam from the professor\", () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Cleanup",
       "item": [
         {
           "name": "Delete session (admin)",
@@ -952,6 +1457,46 @@
                 "game",
                 "sessions",
                 "{{sessionId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete the across-services session (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "description": "",
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{flowSessionId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{flowSessionId}}"
               ]
             },
             "auth": {
@@ -1011,6 +1556,30 @@
     },
     {
       "key": "wsUrl",
+      "value": ""
+    },
+    {
+      "key": "playerToken",
+      "value": ""
+    },
+    {
+      "key": "alice",
+      "value": ""
+    },
+    {
+      "key": "professorId",
+      "value": ""
+    },
+    {
+      "key": "touristId",
+      "value": ""
+    },
+    {
+      "key": "roomId",
+      "value": ""
+    },
+    {
+      "key": "flowSessionId",
       "value": ""
     }
   ]
