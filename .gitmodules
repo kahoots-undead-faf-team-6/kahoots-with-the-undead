@@ -26,3 +26,6 @@
 	path = services/player-service
 	url = https://github.com/kahoots-undead-faf-team-6/player-service.git
 	branch = development
+[submodule "services/gateway"]
+	path = services/gateway
+	url = https://github.com/kahoots-undead-faf-team-6/gateway.git

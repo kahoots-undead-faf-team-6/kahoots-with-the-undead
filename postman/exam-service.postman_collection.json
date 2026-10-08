@@ -32,8 +32,9 @@
             "type": "text/javascript",
             "exec": [
               "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
-              "pm.collectionVariables.set(\"playerId\", pm.variables.replaceIn(\"{{$guid}}\"));",
-              "pm.collectionVariables.set(\"player2Id\", pm.variables.replaceIn(\"{{$guid}}\"));"
+              "// Lab 2: Player Service is real, so use its seeded players (alice, bob)",
+              "pm.collectionVariables.set(\"playerId\", \"aaaaaaaa-0000-4000-8000-000000000001\");",
+              "pm.collectionVariables.set(\"player2Id\", \"aaaaaaaa-0000-4000-8000-000000000002\");"
             ]
           }
         }
