@@ -477,6 +477,8 @@ Every resource below supports the same five operations:
 - Reached only through the gateway at `/world/...` (no published port).
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
 - **`ExamPassed` is verified:** with `EXAM_SERVICE_URL=http://gateway:8081/exam`, World calls Exam `GET /players/{playerId}/progress` (also sending `X-Internal-Key`) and unlocks only if `courseId` has a grade of 5 or more; otherwise **422** `EXAM_NOT_VERIFIED`. Exam saves the grade before it notifies World. Exam unreachable: **502** `UPSTREAM_ERROR`. Empty `EXAM_SERVICE_URL` = the Lab 1 mock.
+- **Seed on start:** with `SEED_ON_START=true` (team compose) the campus map is inserted when the database is empty. The East Wing needs the Exam seed course PAD (`f0000000-0000-4000-8000-000000000002`), so passing that exam unlocks it.
+- **Postman:** `world-service.postman_collection.json` has a folder *Lab 2: ExamPassed through the gateway*: a new player passes the PAD exam and the East Wing opens.
 
 **Calls World Service makes to other services** (through the gateway from Lab 2):
 
@@ -523,6 +525,7 @@ Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATIO
 - Reached only through the gateway at `/zombie/...` (no published port).
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
 - Still standalone: Zombie calls no other service.
+- **Seed on start:** with `SEED_ON_START=true` (team compose) the four types are inserted when the database is empty.
 
 **Calls Zombie Service receives from other services:**
 
@@ -807,7 +810,7 @@ Postman collections for each service live in [`/postman`](./postman).
  
 - `gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game and Exam flows, WebSocket negotiation, 401/403/404 and the limits
 - `game-service.postman_collection.json`: Game Service (port 3001)
-- `world-service.postman_collection.json`: World Service (port 3011)
+- `world-service.postman_collection.json`: World Service (port 3011). Folder *Lab 2: ExamPassed through the gateway* runs against the team stack (port 8080)
 - `zombie-service.postman_collection.json`: Zombie Service (port 3012)
 - `exam-service.postman_collection.json`: Exam Service (port 3002)
 - `resource-service.postman_collection.json`: Resource Service (port 3005)
@@ -876,7 +879,7 @@ Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `htt
 
 Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
 
-World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012. Without the seed, Game finds no rooms or zombie types.
+World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_START=true`, only when the database is empty), so Game finds rooms and zombie types right away. To reseed by hand, the same data is in `db-scripts/`: `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012.
  
 ## 11. Changelog
  
@@ -886,4 +889,4 @@ World and Zombie use MongoDB and are seeded by hand (they skip if the database i
 - **Lab 1, team deployment:** one `deploy/docker-compose.yml` for the whole team (DockerHub images only, a database and named volume per service), combined `.env.example`, Resource/Base Postman collections and db-scripts, Game and Exam submodules, WireMock stand-ins for Player and Crafting.
 - **Lab 1 (v1.0.0), Player + Crafting:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with named volumes, multi-arch public DockerHub images, seed scripts (3 players with inventories, 5 recipes), Postman collections, unit test coverage of ~99% (same tests on the in-memory and PostgreSQL stores), atomic trades (row locks in one transaction) and crafting (idempotent consume + grant, refund on failure). Resource, Exam and World are mocked behind client interfaces in Crafting. The WireMock stand-ins are removed.
 - **Lab 2 (v2.0.0), API Gateway + Game + Exam:** new `gateway` service in Python (FastAPI) as the single entry point: routes to all 8 services, JWT authorization with the `Authorization` header stripped before forwarding, `X-Internal-Key` for service-to-service calls, WebSocket negotiation with a direct signed connection to Game, timeout (504) and concurrent request limit (429). Game and Exam call other services through the gateway and have their own timeout (408) and limit (429). GitHub Actions in all three repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`. Gateway Postman collection and updated architecture diagram.
-- **Lab 2 (v2.0.0), World + Zombie:** reached only through the gateway (`/world`, `/zombie`), no auth checks (the gateway strips `Authorization`), timeout (408) and concurrent request limit (429) with `DEMO_MODE` for the demo, REST only. World verifies `ExamPassed` with Exam through the gateway's internal listener (`X-Internal-Key`) before unlocking a wing. GitHub Actions in both repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`.
+- **Lab 2 (v2.0.0), World + Zombie:** reached only through the gateway (`/world`, `/zombie`), no auth checks (the gateway strips `Authorization`), timeout (408) and concurrent request limit (429) with `DEMO_MODE` for the demo, REST only. World verifies `ExamPassed` with Exam through the gateway's internal listener (`X-Internal-Key`) before unlocking a wing. Both seed MongoDB on start (`SEED_ON_START`), and the East Wing now needs the real Exam course PAD. GitHub Actions in both repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`.
