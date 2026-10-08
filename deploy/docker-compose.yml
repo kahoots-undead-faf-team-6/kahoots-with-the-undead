@@ -201,7 +201,7 @@ services:
 
   # ======================= Resource Service (Vladlen) =======================
   resource-service:
-    image: mituvladlen/resource-service:${RESOURCE_VERSION:-1.0.0}
+    image: mituvladlen/resource-service:${RESOURCE_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
       PORT: "3001"                 # inside the container; published on 3005
