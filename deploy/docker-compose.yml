@@ -208,9 +208,16 @@ services:
       STORAGE: postgres
       DATABASE_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:5432/${RESOURCE_DB_NAME}
       SEED_ON_START: "true"
-      CLIENT_MODE: mock            # Player and World mocked (its players are player-1..3, see README)
+      CLIENT_MODE: mock            # Player and World mocked (see README)
+      # The mock knows Base's players (player-1..5) and the seeded Player Service users
+      # alice, bob and carol, so Base upgrades and Crafting both work against it.
+      MOCK_PLAYERS: player-1,player-2,player-3,player-4,player-5,aaaaaaaa-0000-4000-8000-000000000001,aaaaaaaa-0000-4000-8000-000000000002,aaaaaaaa-0000-4000-8000-000000000003
       PLAYER_SERVICE_URL: http://gateway:8081/player   # Lab 2: through the gateway when CLIENT_MODE=http
       WORLD_SERVICE_URL: http://gateway:8081/world
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       resource-db:
         condition: service_healthy
