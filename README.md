@@ -154,7 +154,7 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | Where | Timeout | Too many requests | Downstream down |
 |---|---|---|---|
 | Gateway | **504** `GATEWAY_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `BAD_GATEWAY` |
-| Game, Exam | **408** `REQUEST_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `UPSTREAM_ERROR` |
+| Game, Exam, World, Zombie | **408** `REQUEST_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `UPSTREAM_ERROR` |
 
 **Gateway errors:** `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_INTERNAL_KEY` (401); `FORBIDDEN` (403); `SERVICE_NOT_FOUND` (404); `PLAYER_NOT_IN_SESSION` (409); `INVALID_BODY`, `INVALID_ROLE` (400); `TOO_MANY_REQUESTS` (429); `BAD_GATEWAY` (502); `GATEWAY_TIMEOUT` (504).
 
@@ -349,10 +349,16 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | World | `GET /nodes/{nodeId}` | `200 { "id": "uuid", "resourceTypeId": "wood" }`, 404 = not found |
  
 ### 5.5 Base Service (owner: Mitu Vladlen) — port 3006
+
+#### Lab 2 updates
+- Reached only through the gateway at `/base/...` (no published port). `/health` also returns `"version": "2.0.0"`.
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` (+ `Retry-After`) above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- Outgoing calls (Resource `consume`, Player, World) use `http://gateway:8081/<service>` (internal listener), send `X-Internal-Key` and give up after `UPSTREAM_TIMEOUT_MS` (3000) with **504** `UPSTREAM_TIMEOUT`.
+- GitHub Actions test every PR and push `mituvladlen/base-service:2.0.0` and `:latest` on merge to `main`.
  
 | Method | Path | Request body | Success response |
 |---|---|---|---|
-| GET | `/health` | – | `200 { "status": "ok", "service": "base-service" }` |
+| GET | `/health` | – | `200 { "status": "ok", "service": "base-service", "version" }` |
 | GET | `/costs` | – | `200` upgrade, barricade and facility costs + Kiki reward table |
 | GET | `/bases` | – | `200 Base[]` |
 | POST | `/bases` | `{ "playerId": "uuid", "name": "string (optional)" }` | `201 Base` (level 1 "FAF Cab") |
@@ -422,7 +428,7 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
  
 ### 5.6 World Service (owner: Mihai Mustea) — port 3011
 
-Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }` (`VALIDATION_ERROR` 400, `NOT_FOUND` 404, `EXAM_NOT_VERIFIED` 422, `INTERNAL_ERROR` 500).
+Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }` (`VALIDATION_ERROR` 400, `NOT_FOUND` 404, `REQUEST_TIMEOUT` 408, `EXAM_NOT_VERIFIED` 422, `TOO_MANY_REQUESTS` 429, `INTERNAL_ERROR` 500, `UPSTREAM_ERROR` 502).
 
 #### Health
 
@@ -464,7 +470,7 @@ Every resource below supports the same five operations:
 | `POST` | `/wings/{id}/unlock` | - | `200 { "wing": {...}, "alreadyUnlocked": false }`, `404` |
 | `POST` | `/events/exam-passed` | `{ "playerId": "uuid", "courseId": "uuid", "category": "MIDTERM", "grade": 8.5 }` | `200 { "unlocked": [wing], "alreadyUnlocked": [wing] }` (empty lists when no wing needs that course), `400`, `422` |
 
-`POST /events/exam-passed` is sent by the Exam Service (payload as agreed in the contract). Every wing whose `requiredCourseId` equals the `courseId` is unlocked; repeats are idempotent. In Lab 1 the Exam Service is mocked behind `ExamServiceClient` (`src/clients/examClient.ts`) and replaced by a real HTTP client in Lab 2.
+`POST /events/exam-passed` is sent by the Exam Service (payload as agreed in the contract). Every wing whose `requiredCourseId` equals the `courseId` is unlocked; repeats are idempotent. World checks the event with the Exam Service behind `ExamServiceClient` (`src/clients/examClient.ts`): a mock in Lab 1, a real HTTP client through the gateway from Lab 2.
 
 #### Lab 1 notes
 - **Storage:** MongoDB (`world` database), seeded by `db-scripts/world-service/seed.js` (FAF Cab, Canteen, Library, Laboratory, 2 classrooms, 1 locked wing).
@@ -472,6 +478,19 @@ Every resource below supports the same five operations:
 - **Resource types:** Laboratory = `metal_scraps`, Library = `paper`, Canteen = `food`, Classrooms = `textbooks`.
 - **Unlocking:** a wing has an optional `requiredCourseId`. `POST /events/exam-passed` unlocks every wing whose `requiredCourseId` equals the `courseId`, and is idempotent.
 - **Spawn configs** reference a zombie type by its Zombie Service `code` (e.g. `PROFESSOR`).
+
+#### Lab 2 updates
+- Reached only through the gateway at `/world/...` (no published port).
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- **`ExamPassed` is verified:** with `EXAM_SERVICE_URL=http://gateway:8081/exam`, World calls Exam `GET /players/{playerId}/progress` (also sending `X-Internal-Key`) and unlocks only if `courseId` has a grade of 5 or more; otherwise **422** `EXAM_NOT_VERIFIED`. Exam saves the grade before it notifies World. Exam unreachable: **502** `UPSTREAM_ERROR`. Empty `EXAM_SERVICE_URL` = the Lab 1 mock.
+- **Seed on start:** with `SEED_ON_START=true` (team compose) the campus map is inserted when the database is empty. The East Wing needs the Exam seed course PAD (`f0000000-0000-4000-8000-000000000002`), so passing that exam unlocks it.
+- **Postman:** `world-service.postman_collection.json` has a folder *Lab 2: ExamPassed through the gateway*: a new player passes the PAD exam and the East Wing opens.
+
+**Calls World Service makes to other services** (through the gateway from Lab 2):
+
+| Target | Call | Expected response |
+|---|---|---|
+| Exam | `GET /players/{playerId}/progress` | `200 { "grades": [ { "courseId", "grade" } ] }`, 404 = unknown player (not verified) |
 
 **Calls World Service receives from other services:**
 
@@ -507,6 +526,12 @@ Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }`: `VALIDATIO
 - **Storage:** MongoDB (`zombie` database), seeded by `db-scripts/zombie-service/seed.js` with four types: `PROFESSOR`, `TOURIST`, `OVERWORKED_STUDENT`, `DEAN`.
 - **Standalone:** Zombie Service calls no other service, so there is nothing to mock. It only stores definitions; live zombies belong to Game Service.
 - **Uniqueness:** `code` and `name` are both unique (`409 CONFLICT`).
+
+#### Lab 2 updates
+- Reached only through the gateway at `/zombie/...` (no published port).
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- Still standalone: Zombie calls no other service.
+- **Seed on start:** with `SEED_ON_START=true` (team compose) the four types are inserted when the database is empty.
 
 **Calls Zombie Service receives from other services:**
 
@@ -812,6 +837,8 @@ git submodule update --init --recursive
 | Resource Service | [mituvladlen/resource-service:1.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
 | Base Service | [mituvladlen/base-service:1.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | [gabriel120405/crafting-service:2.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
+| Base Service | [mituvladlen/base-service:2.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
+| Crafting Service | [gabriel120405/crafting-service:1.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
  
 **Run requirements, Player + Crafting (2.0.0):** Docker only. The images are multi-arch (linux/amd64 + linux/arm64), so they run on Intel/AMD and Apple Silicon.
 GitHub Actions publishes them on every merge to `main` (`:2.0.0` and `:latest`).
@@ -826,7 +853,7 @@ Postman collections for each service live in [`/postman`](./postman).
  
 - `lab2-gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game, Exam, Player and Crafting flows, WebSocket negotiation, 401/403/404, 408, 429 (parallel burst) and 504
 - `game-service.postman_collection.json`: Game Service (port 3001)
-- `world-service.postman_collection.json`: World Service (port 3011)
+- `world-service.postman_collection.json`: World Service (port 3011). Folder *Lab 2: ExamPassed through the gateway* runs against the team stack (port 8080)
 - `zombie-service.postman_collection.json`: Zombie Service (port 3012)
 - `exam-service.postman_collection.json`: Exam Service (port 3002)
 - `resource-service.postman_collection.json`: Resource Service (port 3005)
@@ -858,7 +885,7 @@ Track lab tasks on the linked [GitHub Project](#).
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-cp deploy/.env.example deploy/.env    # set every password and the gateway secrets
+./deploy/setup-env.sh                 # writes deploy/.env with random passwords and gateway secrets (gitignored)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 curl http://localhost:8080/health
 curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
@@ -883,6 +910,7 @@ To run a teammate's own Postman collection, set its `baseUrl` to `http://localho
 | Game | Exam, World, Zombie, Player | real | Game reads World's `{id}` rooms and Zombie's `{id, code}` types |
 | Game | Resource | Game's mock | Resource has no `POST /resources/steal` and gather takes `amount` |
 | Exam | World (`ExamPassed`), Player (rewards) | real | |
+| World | Exam | real | verifies `ExamPassed` with `GET /players/{id}/progress` before unlocking a wing |
 | Base | Resource | real | `RESOURCE_SERVICE_URL=http://gateway:8081/resource/resources` (Base posts `{URL}/consume`) |
 | Base | Player, World | Base's mocks | Base's players are `player-1..3` and rooms `FAF_CAB`, not Player/World ids |
 | Resource | Player, World | Resource's mocks (`CLIENT_MODE=mock`) | same `player-1..3` ids; World has `/resource-nodes/{id}`, Resource calls `/nodes/{id}` |
@@ -894,7 +922,7 @@ Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `htt
 
 Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
 
-World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012. Without the seed, Game finds no rooms or zombie types.
+World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_START=true`, only when the database is empty), so Game finds rooms and zombie types right away. To reseed by hand, the same data is in `db-scripts/`: `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012.
  
 ## 11. Changelog
  
@@ -905,3 +933,4 @@ World and Zombie use MongoDB and are seeded by hand (they skip if the database i
 - **Lab 1 (v1.0.0), Player + Crafting:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with named volumes, multi-arch public DockerHub images, seed scripts (3 players with inventories, 5 recipes), Postman collections, unit test coverage of ~99% (same tests on the in-memory and PostgreSQL stores), atomic trades (row locks in one transaction) and crafting (idempotent consume + grant, refund on failure). Resource, Exam and World are mocked behind client interfaces in Crafting. The WireMock stand-ins are removed.
 - **Lab 2 (v2.0.0), API Gateway + Game + Exam:** new `gateway` service in Python (FastAPI) as the single entry point: routes to all 8 services, JWT authorization with the `Authorization` header stripped before forwarding, `X-Internal-Key` for service-to-service calls, WebSocket negotiation with a direct signed connection to Game, timeout (504) and concurrent request limit (429). Game and Exam call other services through the gateway and have their own timeout (408) and limit (429). GitHub Actions in all three repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`. Gateway Postman collection and updated architecture diagram.
 - **Lab 2 (v2.0.0), Player + Crafting:** REST only, behind the gateway, with no published ports. No auth downstream: the caller comes from `X-User-Id` / `X-User-Role`, and Player still issues the login JWT that the gateway validates. Crafting calls Player, Resource, Exam and World through the gateway (`*_SERVICE_URL`, `X-Internal-Key`). Each service has its own request timeout (408) and concurrent request limit (429) from `REQUEST_TIMEOUT_MS` / `MAX_CONCURRENT_REQUESTS`, plus `/debug/slow` with `DEMO_MODE=true`. GitHub Actions tests every PR (memory + PostgreSQL, coverage ≥ 80%) and pushes multi-arch `:2.0.0` + `:latest` on merge to `main`. The Lab 2 Postman collection is renamed `lab2-gateway` and extended with the Player and Crafting flows, the 429 burst and the services' 408.
+
