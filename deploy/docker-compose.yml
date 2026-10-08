@@ -232,7 +232,7 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: mituvladlen/base-service:${BASE_VERSION:-1.0.0}   # 2.0.0 once its CI has published it
+    image: alexandrubujor1/base-service:${BASE_VERSION:-2.0.0}   # published by base-service CI (repo secrets)
     restart: unless-stopped
     environment:
       PORT: "3002"
