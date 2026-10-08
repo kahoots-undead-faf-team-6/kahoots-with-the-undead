@@ -1,0 +1,2945 @@
+{
+  "info": {
+    "name": "Lab 2 - Presentation (API Gateway)",
+    "description": "Run the folders in order, top to bottom. Gateway: http://localhost:8080 (stack started with `./deploy/setup-env.sh --demo` + `docker compose up`).\nBefore running: Collection -> Variables -> set adminKey to the ADMIN_KEY value from deploy/.env (only the admin requests need it).\nTokens and ids are saved automatically by each request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Gateway is up (Grades 1, 4)",
+      "description": "The gateway answers on :8080 and sees all 8 services.",
+      "item": [
+        {
+          "name": "Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/health",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "health"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"version 2.0.0\", () => pm.expect(pm.response.json().version).to.eql(\"2.0.0\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All 8 services through the gateway",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/health/services",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "health",
+                "services"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"all 8 services up\", () => { const s = pm.response.json().services; pm.expect(Object.keys(s)).to.have.length(8); Object.values(s).forEach(v => pm.expect(v).to.eql(\"up\")); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Tokens (Grade 9)",
+      "description": "Only the gateway issues and checks tokens. Login and register are the only public service routes.",
+      "item": [
+        {
+          "name": "Player token from the gateway",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/auth/token",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"token\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin token (needs the admin key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/auth/token",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"admin-1\",\n  \"role\": \"admin\",\n  \"adminKey\": \"{{adminKey}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"adminToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin token with a wrong key -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/auth/token",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"admin-1\",\n  \"role\": \"admin\",\n  \"adminKey\": \"wrong\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error FORBIDDEN\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login alice through Player Service (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/auth/login",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "login"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"aliceToken\", pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login bob (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/auth/login",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "login"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"bob\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"bobToken\", pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Authorization errors (Grade 9)",
+      "description": "Rejected at the gateway; the services never see a token.",
+      "item": [
+        {
+          "name": "No token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error MISSING_TOKEN\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"MISSING_TOKEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forged token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not.a.valid.jwt",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error INVALID_TOKEN\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"INVALID_TOKEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player creates a course (admin only) -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/exam/courses",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nope\",\n  \"category\": \"MATH\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error FORBIDDEN\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown service -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/nothing/here",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "nothing",
+                "here"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"error SERVICE_NOT_FOUND\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"SERVICE_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Service identity comes from the gateway (X-User-Id)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/player/auth/me",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "me"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"it is alice\", () => pm.expect(pm.response.json().playerId).to.eql(\"aaaaaaaa-0000-4000-8000-000000000001\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Game through the gateway (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Create a session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lab 2 demo\",\n  \"maxPlayers\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"sessionId\", pm.response.json().sessionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice joins (Game -> gateway -> Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/join",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "join"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Day/night cycle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/cycle",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "cycle"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start an action (chop benches)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/actions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "actions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"type\": \"CHOP_BENCHES\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. WebSocket negotiation (Grade 6)",
+      "description": "The gateway only negotiates. Copy wsUrl from the first response, then New -> WebSocket -> paste -> Connect: the socket opens straight to Game on :3001.",
+      "item": [
+        {
+          "name": "Negotiate -> direct URL to Game",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/ws/negotiate",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "ws",
+                "negotiate"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"wsUrl\", pm.response.json().wsUrl);",
+                  "pm.test(\"points at Game :3001 with a token\", () => pm.expect(pm.response.json().wsUrl).to.match(/^ws:\\/\\/localhost:3001\\/ws\\?.*token=/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Negotiate for someone else -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/ws/negotiate",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "ws",
+                "negotiate"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"playerId\": \"aaaaaaaa-0000-4000-8000-000000000002\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Negotiate for an unknown session -> 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/ws/negotiate",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "ws",
+                "negotiate"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"00000000-0000-4000-8000-000000000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Exam through the gateway (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Create a course (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/exam/courses",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Distributed Systems\",\n  \"category\": \"PROGRAMMING\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"courseId\", pm.response.json().courseId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add a question (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/exam/courses/{{courseId}}/questions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "courses",
+                "{{courseId}}",
+                "questions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Which service validates the JWT?\",\n  \"options\": [\n    \"Every service\",\n    \"The API Gateway\",\n    \"PostgreSQL\"\n  ],\n  \"correctOption\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Courses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/courses",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice starts the exam (Exam -> gateway -> Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/exam/exams",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "exams"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"courseId\": \"{{courseId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"examId\", pm.response.json().examId);",
+                  "pm.collectionVariables.set(\"questionId\", pm.response.json().questions[0].questionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice answers correctly -> passed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/exam/exams/{{examId}}/submit",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "exams",
+                "{{examId}}",
+                "submit"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answers\": [\n    {\n      \"questionId\": \"{{questionId}}\",\n      \"selectedOption\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"passed\", () => pm.expect(pm.response.json().passed).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice's progress",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/players/{{playerId}}/progress",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "players",
+                "{{playerId}}",
+                "progress"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice's achievements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/players/{{playerId}}/achievements",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "players",
+                "{{playerId}}",
+                "achievements"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. World + Zombie, and Game calling them (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Available rooms (World)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/world/rooms?available=true",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "available",
+                  "value": "true"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"roomId\", pm.response.json()[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spawn points (World)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/world/spawn-points",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "world",
+                "spawn-points"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wings (World)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/world/wings",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "world",
+                "wings"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zombie types (Zombie)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/zombie/zombie-types",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "zombie",
+                "zombie-types"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.collectionVariables.set(\"professorId\", t.find(z => z.code === \"PROFESSOR\").id);",
+                  "pm.collectionVariables.set(\"touristId\", t.find(z => z.code === \"TOURIST\").id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Barricade a World room (Game -> World)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/actions",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "actions"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"type\": \"BARRICADE_ROOM\",\n  \"targetId\": \"{{roomId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202 or 409\", () => pm.expect(pm.response.code).to.be.oneOf([202, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Professor zombie -> exam starts (Game -> Zombie, Game -> Exam)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/encounters",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "encounters"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"zombieId\": \"{{professorId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tourist zombie -> steals XP (Game -> Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}/encounters",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "encounters"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"zombieId\": \"{{touristId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice's exams (the one the professor started)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/players/{{playerId}}/exams",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "players",
+                "{{playerId}}",
+                "exams"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Resource + Base (Grade 5)",
+      "description": "Base pays for upgrades through Resource, via the gateway.",
+      "item": [
+        {
+          "name": "Resource types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/resource/resource-types",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "resource-types"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Give player-1 materials (Resource grant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/resource/resources/grant",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "resources",
+                "grant"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\",\n  \"playerId\": \"player-1\",\n  \"items\": [\n    {\n      \"resourceTypeId\": \"wood\",\n      \"amount\": 50\n    },\n    {\n      \"resourceTypeId\": \"metal_scraps\",\n      \"amount\": 25\n    },\n    {\n      \"resourceTypeId\": \"paper\",\n      \"amount\": 10\n    }\n  ],\n  \"source\": \"demo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "player-1's resources",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/resource/players/player-1/resources",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "player-1",
+                "resources"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Base catalog (costs)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/base/catalog",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "base",
+                "catalog"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "player-1's base",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/base/bases/base-player-1",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "base",
+                "bases",
+                "base-player-1"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upgrade the base (Base -> gateway -> Resource consume)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/base/bases/base-player-1/upgrade",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "base",
+                "bases",
+                "base-player-1",
+                "upgrade"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actionId\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "201 = upgraded and resources spent; 422 MAX_LEVEL_REACHED after a few runs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201 or 422\", () => pm.expect(pm.response.code).to.be.oneOf([201, 422]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resources after the upgrade",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/resource/players/player-1/resources",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "player-1",
+                "resources"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Player + Crafting (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Alice's profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/player/players/{{playerId}}",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice edits bob's profile -> 403",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/players/aaaaaaaa-0000-4000-8000-000000000002",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "players",
+                "aaaaaaaa-0000-4000-8000-000000000002"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bio\": \"hacked\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Give alice a coffee",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/players/{{playerId}}/inventory",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "inventory"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemCode\": \"COFFEE\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201 or 200\", () => pm.expect(pm.response.code).to.be.oneOf([201, 200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Give bob a sandwich",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/players/aaaaaaaa-0000-4000-8000-000000000002/inventory",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "players",
+                "aaaaaaaa-0000-4000-8000-000000000002",
+                "inventory"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemCode\": \"DAVIDAN_SANDWICH\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201 or 200\", () => pm.expect(pm.response.code).to.be.oneOf([201, 200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice offers bob a trade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/player/trades",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "trades"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toPlayerId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n  \"offered\": [\n    {\n      \"itemCode\": \"COFFEE\",\n      \"quantity\": 1\n    }\n  ],\n  \"requested\": [\n    {\n      \"itemCode\": \"DAVIDAN_SANDWICH\",\n      \"quantity\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"tradeId\", pm.response.json().tradeId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bob accepts (atomic swap)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/player/trades/{{tradeId}}/accept",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "trades",
+                "{{tradeId}}",
+                "accept"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{bobToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Recipes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/crafting/recipes",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "crafting",
+                "recipes"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Which recipes alice unlocked (Crafting -> Player, Exam, World, Resource)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/crafting/players/{{playerId}}/recipes",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "crafting",
+                "players",
+                "{{playerId}}",
+                "recipes"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Give alice wood",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/resource/players/{{playerId}}/resources/wood",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{playerId}}",
+                "resources",
+                "wood"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Give alice metal scraps",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/resource/players/{{playerId}}/resources/metal_scraps",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{playerId}}",
+                "resources",
+                "metal_scraps"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alice crafts a Barricade Kit (Crafting -> Resource, Crafting -> Player)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/crafting/craft",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "crafting",
+                "craft"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipeId\": \"e0000000-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wood went 10 -> 7",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/resource/players/{{playerId}}/resources/wood",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "players",
+                "{{playerId}}",
+                "resources",
+                "wood"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"7 wood left\", () => pm.expect(pm.response.json().quantity).to.eql(7));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "The Barricade Kit is in alice's inventory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/player/players/{{playerId}}/inventory",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "inventory"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aliceToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"has a Barricade Kit\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"BARRICADE_KIT\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10. Timeouts and limits (Grade 7)",
+      "description": "Needs `./deploy/setup-env.sh --demo` (DEMO_MODE=true, services 3 s, gateway 5 concurrent).",
+      "item": [
+        {
+          "name": "Game Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The game service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Exam Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The exam service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "World Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/world/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "world",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The world service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Zombie Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/zombie/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "zombie",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The zombie service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resource Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/resource/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "resource",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The resource service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Base Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/base/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "base",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The base service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crafting Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/crafting/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "crafting",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The crafting service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player Service timeout -> 408",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/player/debug/slow?ms=8000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "player",
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "8000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The player service stops the request after SERVICE_REQUEST_TIMEOUT_MS (3000 ms with --demo) and answers 408."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 408\", () => pm.response.to.have.status(408));",
+                  "pm.test(\"error REQUEST_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"REQUEST_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gateway timeout -> 504",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/debug/slow?ms=15000",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "debug",
+                "slow"
+              ],
+              "query": [
+                {
+                  "key": "ms",
+                  "value": "15000"
+                }
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "description": "The gateway itself gives up after GATEWAY_REQUEST_TIMEOUT_MS (10 s)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 504\", () => pm.response.to.have.status(504));",
+                  "pm.test(\"error GATEWAY_TIMEOUT\", () => pm.expect(JSON.stringify(pm.response.json())).to.include(\"GATEWAY_TIMEOUT\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Burst of 10 parallel requests -> some 429",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/health",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "health"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Open the Postman console to see the status codes: 5 x 200, the rest 429."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "// Postman sends requests one by one, so this script fires {{burst}} at once itself.",
+                  "const n = Number(pm.collectionVariables.get('burst') || 10);",
+                  "const url = 'http://localhost:8080/debug/slow?ms=2000';",
+                  "const codes = []; const bodies = [];",
+                  "for (let i = 0; i < n; i++) {",
+                  "  pm.sendRequest({ url, header: { Authorization: 'Bearer ' + pm.collectionVariables.get('token') } }, (e, res) => {",
+                  "    codes.push(e ? 0 : res.code);",
+                  "    if (!e && res.code === 429) bodies.push(res.json());",
+                  "    if (codes.length === n) {",
+                  "      console.log('burst status codes', codes);",
+                  "      pm.test('some requests got 429', () => pm.expect(codes).to.include(429));",
+                  "      pm.test('the others went through (200)', () => pm.expect(codes).to.include(200));",
+                  "      pm.test('429 body is TOO_MANY_REQUESTS', () => pm.expect(bodies[0].error).to.eql('TOO_MANY_REQUESTS'));",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11. Cleanup (admin)",
+      "description": "",
+      "item": [
+        {
+          "name": "Delete the session",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/game/sessions/{{sessionId}}",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete the course",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/exam/courses/{{courseId}}",
+              "host": [
+                "localhost"
+              ],
+              "path": [
+                "exam",
+                "courses",
+                "{{courseId}}"
+              ],
+              "protocol": "http",
+              "port": "8080"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "adminKey",
+      "value": "paste ADMIN_KEY from deploy/.env"
+    },
+    {
+      "key": "playerId",
+      "value": "aaaaaaaa-0000-4000-8000-000000000001"
+    },
+    {
+      "key": "burst",
+      "value": "10"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "aliceToken",
+      "value": ""
+    },
+    {
+      "key": "bobToken",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    },
+    {
+      "key": "wsUrl",
+      "value": ""
+    },
+    {
+      "key": "courseId",
+      "value": ""
+    },
+    {
+      "key": "questionId",
+      "value": ""
+    },
+    {
+      "key": "examId",
+      "value": ""
+    },
+    {
+      "key": "roomId",
+      "value": ""
+    },
+    {
+      "key": "professorId",
+      "value": ""
+    },
+    {
+      "key": "touristId",
+      "value": ""
+    },
+    {
+      "key": "tradeId",
+      "value": ""
+    }
+  ]
+}
