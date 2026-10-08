@@ -271,15 +271,18 @@ services:
 
   # ======================= Player Service (Gabriel) =======================
   player-service:
-    image: gabriel120405/player-service:${PLAYER_VERSION:-1.0.0}
+    image: gabriel120405/player-service:${PLAYER_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
       PORT: "3032"
       STORAGE: postgres
       DATABASE_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:5432/${PLAYER_DB_NAME}
       SEED_ON_START: "true"
-      JWT_SECRET: ${PLAYER_JWT_SECRET}
-      TRUST_GATEWAY_HEADERS: "true"   # Lab 2: caller comes from the gateway's X-User-Id (player-service PR #4)
+      JWT_SECRET: ${PLAYER_JWT_SECRET}   # same value as the gateway's PLAYER_JWT_SECRET: the gateway validates login tokens
+      # 2.0.0 never reads Authorization: the caller comes from the gateway's X-User-Id / X-User-Role
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       player-db:
         condition: service_healthy
@@ -304,24 +307,29 @@ services:
 
   # ======================= Crafting Service (Gabriel) =======================
   crafting-service:
-    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-1.0.0}
+    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
       PORT: "3031"
       STORAGE: postgres
       DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
       SEED_ON_START: "true"
-      PLAYER_CLIENT: http          # real call: player level + deliver the crafted item
-      PLAYER_SERVICE_URL: http://gateway:8081/player   # Lab 2: through the gateway
-      RESOURCE_CLIENT: mock        # mocked: Resource's own Player mock only knows player-1..3 (see README)
+      # Lab 2: every call goes through the gateway's internal listener (no container names of other services)
+      PLAYER_CLIENT: http          # player level + deliver the crafted item
+      PLAYER_SERVICE_URL: http://gateway:8081/player
+      RESOURCE_CLIENT: ${CRAFTING_RESOURCE_CLIENT:-http}   # check + consume the materials (all-or-nothing), refund on failure
       RESOURCE_SERVICE_URL: http://gateway:8081/resource
-      EXAM_CLIENT: mock            # Lab 1: unlock conditions mocked
-      WORLD_CLIENT: mock
+      EXAM_CLIENT: http            # unlock condition: passed course
+      EXAM_SERVICE_URL: http://gateway:8081/exam
+      WORLD_CLIENT: http           # unlock condition: unlocked wing
+      WORLD_SERVICE_URL: http://gateway:8081/world
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}   # sent as X-Internal-Key (also lets it use the public port)
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       crafting-db:
         condition: service_healthy
-      player-service:
-        condition: service_started
     # no published port: reach it through the gateway at /crafting
 
   crafting-db:
