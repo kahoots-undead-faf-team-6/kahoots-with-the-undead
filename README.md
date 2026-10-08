@@ -883,8 +883,9 @@ Track lab tasks on the linked [GitHub Project](#).
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-./deploy/setup-env.sh                 # writes deploy/.env with random passwords and gateway secrets (gitignored)
+./deploy/setup-env.sh --demo          # writes deploy/.env (random secrets; --demo = DEMO_MODE + low limits for the 408/429/504 demos)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+docker compose -f deploy/docker-compose.yml ps   # wait until everything is healthy (about a minute)
 curl http://localhost:8080/health
 curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
 
@@ -898,6 +899,8 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/game/sessions
 curl -H "Authorization: Bearer $TOKEN" localhost:8080/world/rooms
 curl -i localhost:8080/game/sessions          # 401 MISSING_TOKEN
 ```
+
+**Postman (whole Lab 2 demo):** import `postman/lab2-gateway.postman_collection.json` and the environment `deploy/lab2.postman_environment.json` (written by `setup-env.sh`, holds the generated `adminKey`), select the environment and run the collection: 65 requests, 92 checks, all folders pass with `--demo`. World and Zombie seed themselves on the first start.
 
 To run a teammate's own Postman collection, set its `baseUrl` to `http://localhost:8080/<service>` and add a Bearer token (Authorization tab of the collection).
 

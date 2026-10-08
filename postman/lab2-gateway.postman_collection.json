@@ -2266,7 +2266,7 @@
     },
     {
       "name": "9. Limits: 429 and the service timeout (needs DEMO_MODE=true)",
-      "description": "Set low limits for the demo in deploy/.env: GATEWAY_MAX_CONCURRENT_REQUESTS=3, DEMO_MODE=true. 'burst' (default 10) must be larger than GATEWAY_MAX_CONCURRENT_REQUESTS.",
+      "description": "Needs DEMO_MODE=true and a gateway limit below 'burst' (default 10): `./deploy/setup-env.sh --demo` sets both (GATEWAY_MAX_CONCURRENT_REQUESTS=5). Run \"1. Auth\" first.",
       "item": [
         {
           "name": "Burst of parallel requests -> some 429 TOO_MANY_REQUESTS (gateway)",
@@ -2343,7 +2343,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{playerToken}}",
+                  "value": "{{token}}",
                   "type": "string"
                 }
               ]
@@ -2390,7 +2390,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{playerToken}}",
+                  "value": "{{token}}",
                   "type": "string"
                 }
               ]
