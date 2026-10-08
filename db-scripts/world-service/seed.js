@@ -6,7 +6,8 @@ const COLLECTIONS = ['wings', 'rooms', 'corridors', 'zones', 'resource_nodes', '
 
 function buildData() {
   const id = () => randomUUID();
-  const wingEast = { _id: id(), name: 'East Wing', unlocked: false, requiredCourseId: 'course-algorithms' };
+  // Exam Service seed course "PAD - Distributed Applications": passing it unlocks the East Wing.
+  const wingEast = { _id: id(), name: 'East Wing', unlocked: false, requiredCourseId: 'f0000000-0000-4000-8000-000000000002' };
   const zoneSafe = { _id: id(), name: 'Safe Zone', description: 'Around FAF Cab', dangerLevel: 1 };
   const zoneMain = { _id: id(), name: 'Main Building', description: 'Public rooms', dangerLevel: 4 };
   const zoneEast = { _id: id(), name: 'East Wing Zone', description: 'Sealed until an exam is passed', dangerLevel: 8 };
