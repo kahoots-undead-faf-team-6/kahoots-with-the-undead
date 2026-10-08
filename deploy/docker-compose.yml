@@ -18,6 +18,7 @@ services:
       PORT: "8080"
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_KEY: ${ADMIN_KEY}
+      PLAYER_JWT_SECRET: ${PLAYER_JWT_SECRET}   # accept Player Service login tokens
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
       GAME_WS_PUBLIC_URL: ws://localhost:3001/ws
