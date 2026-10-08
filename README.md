@@ -849,6 +849,7 @@ with `*_CLIENT=http`. Both read `REQUEST_TIMEOUT_MS`, `MAX_CONCURRENT_REQUESTS` 
  
 Postman collections for each service live in [`/postman`](./postman).
  
+- `lab2-presentation.postman_collection.json`: **Lab 2 presentation**, 67 requests in grade order against `http://localhost:8080` (set `adminKey` from `deploy/.env`, run with `setup-env.sh --demo`)
 - `lab2-gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game, Exam, Player and Crafting flows, WebSocket negotiation, 401/403/404, 408, 429 (parallel burst) and 504
 - `game-service.postman_collection.json`: Game Service (port 3001)
 - `world-service.postman_collection.json`: World Service (port 3011). Folder *Lab 2: ExamPassed through the gateway* runs against the team stack (port 8080)
