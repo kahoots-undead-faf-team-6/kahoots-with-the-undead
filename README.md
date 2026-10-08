@@ -34,31 +34,61 @@ a distinct slice of state and behavior.
 | **Crafting Service** | Recipes, crafting validation, atomic craft operations | Player inventory storage (delegates the actual item transfer to Player Service) |
  
 ## 3. Architecture Diagram
- 
+
+From Lab 2 the **API Gateway** is the single entry point. Clients and services send every REST request to it; it validates the caller (JWT for clients, `X-Internal-Key` for services), applies its limits and forwards the request without the credentials. The only traffic that bypasses it is the live WebSocket to Game, which the gateway negotiates and the client then opens directly.
+
 ```mermaid
 graph TD
-    Player[Player Service]
-    Game[Game Service]
-    Exam[Exam Service]
-    World[World Service]
-    Zombie[Zombie Service]
-    Resource[Resource Service]
-    Base[Base Service]
-    Crafting[Crafting Service]
- 
-    Game -->|requests exam on Professor Zombie encounter| Exam
-    Game -->|query rooms / resource nodes / spawn points| World
-    Game -->|get zombie config for cycle| Zombie
-    Game -->|validate & apply resource change| Resource
-    Game -->|verify ownership & transfer items on trade| Player
-    Exam -->|notify ExamPassed, unlock new wing| World
-    Exam -->|unlock achievements / trigger rewards| Player
-    Resource -->|consume resources for upgrades| Base
-    Crafting -->|validate required materials| Resource
-    Crafting -->|transfer crafted item to inventory| Player
-    Base -->|references geography, doesn't own it| World
+    Client([Client / Postman])
+    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · timeout · concurrency limit}}
+
+    subgraph Services
+        Player[Player Service]
+        Game[Game Service]
+        Exam[Exam Service]
+        World[World Service]
+        Zombie[Zombie Service]
+        Resource[Resource Service]
+        Base[Base Service]
+        Crafting[Crafting Service]
+    end
+
+    Client -->|REST + Bearer JWT| Gateway
+    Client -->|1. POST /ws/negotiate| Gateway
+    Client -.->|2. WebSocket, direct, signed token| Game
+
+    Gateway -->|/game| Game
+    Gateway -->|/exam| Exam
+    Gateway -->|/world| World
+    Gateway -->|/zombie| Zombie
+    Gateway -->|/resource| Resource
+    Gateway -->|/base| Base
+    Gateway -->|/crafting| Crafting
+    Gateway -->|/player| Player
+
+    Game ==>|via gateway: exam on Professor Zombie, rooms, zombie config, resources, XP| Gateway
+    Exam ==>|via gateway: ExamPassed, rewards| Gateway
+    Crafting ==>|via gateway: materials, item transfer| Gateway
+    Resource ==>|via gateway: player / world checks| Gateway
+    Base ==>|via gateway: consume resources, geography| Gateway
 ```
- 
+
+Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8080/exam/exams`):
+
+| From | To | Why |
+|---|---|---|
+| Game | Exam | Start an exam on a Professor Zombie encounter |
+| Game | World | Rooms, resource nodes, spawn points |
+| Game | Zombie | Zombie types for the cycle |
+| Game | Resource | Gather / steal resources |
+| Game | Player | Validate players, change XP |
+| Exam | World | `ExamPassed` unlocks a new wing |
+| Exam | Player | Achievements and rewards |
+| Base | Resource | Consume resources for upgrades |
+| Base | World | References geography |
+| Crafting | Resource | Validate required materials |
+| Crafting | Player | Transfer the crafted item |
+
 ## 4. Technologies & Communication Patterns
  
 > _To complete: team decision on the 2 languages._ Each service's language, framework, and
