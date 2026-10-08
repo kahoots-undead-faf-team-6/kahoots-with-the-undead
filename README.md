@@ -829,7 +829,7 @@ Track lab tasks on the linked [GitHub Project](#).
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-cp deploy/.env.example deploy/.env    # set every password and the gateway secrets
+./deploy/setup-env.sh                 # writes deploy/.env with random passwords and gateway secrets (gitignored)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 curl http://localhost:8080/health
 curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
