@@ -349,10 +349,16 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | World | `GET /nodes/{nodeId}` | `200 { "id": "uuid", "resourceTypeId": "wood" }`, 404 = not found |
  
 ### 5.5 Base Service (owner: Mitu Vladlen) — port 3006
+
+#### Lab 2 updates
+- Reached only through the gateway at `/base/...` (no published port). `/health` also returns `"version": "2.0.0"`.
+- **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` (+ `Retry-After`) above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
+- Outgoing calls (Resource `consume`, Player, World) use `http://gateway:8081/<service>` (internal listener), send `X-Internal-Key` and give up after `UPSTREAM_TIMEOUT_MS` (3000) with **504** `UPSTREAM_TIMEOUT`.
+- GitHub Actions test every PR and push `mituvladlen/base-service:2.0.0` and `:latest` on merge to `main`.
  
 | Method | Path | Request body | Success response |
 |---|---|---|---|
-| GET | `/health` | – | `200 { "status": "ok", "service": "base-service" }` |
+| GET | `/health` | – | `200 { "status": "ok", "service": "base-service", "version" }` |
 | GET | `/costs` | – | `200` upgrade, barricade and facility costs + Kiki reward table |
 | GET | `/bases` | – | `200 Base[]` |
 | POST | `/bases` | `{ "playerId": "uuid", "name": "string (optional)" }` | `201 Base` (level 1 "FAF Cab") |
@@ -795,7 +801,7 @@ git submodule update --init --recursive
 | World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
 | Zombie Service | [mihaim888/zombie-service:2.0.0](https://hub.docker.com/r/mihaim888/zombie-service) | [zombie-service](https://github.com/kahoots-undead-faf-team-6/zombie-service) (private) |
 | Resource Service | [mituvladlen/resource-service:1.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
-| Base Service | [mituvladlen/base-service:1.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
+| Base Service | [mituvladlen/base-service:2.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | [gabriel120405/crafting-service:1.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
  
 **Run requirements, Player + Crafting:** Docker only. The images are multi-arch (linux/amd64 + linux/arm64), so they run on Intel/AMD and Apple Silicon.
@@ -842,7 +848,7 @@ Track lab tasks on the linked [GitHub Project](#).
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-cp deploy/.env.example deploy/.env    # set every password and the gateway secrets
+./deploy/setup-env.sh                 # writes deploy/.env with random passwords and gateway secrets (gitignored)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 curl http://localhost:8080/health
 curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
@@ -889,4 +895,4 @@ World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_ST
 - **Lab 1, team deployment:** one `deploy/docker-compose.yml` for the whole team (DockerHub images only, a database and named volume per service), combined `.env.example`, Resource/Base Postman collections and db-scripts, Game and Exam submodules, WireMock stand-ins for Player and Crafting.
 - **Lab 1 (v1.0.0), Player + Crafting:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with named volumes, multi-arch public DockerHub images, seed scripts (3 players with inventories, 5 recipes), Postman collections, unit test coverage of ~99% (same tests on the in-memory and PostgreSQL stores), atomic trades (row locks in one transaction) and crafting (idempotent consume + grant, refund on failure). Resource, Exam and World are mocked behind client interfaces in Crafting. The WireMock stand-ins are removed.
 - **Lab 2 (v2.0.0), API Gateway + Game + Exam:** new `gateway` service in Python (FastAPI) as the single entry point: routes to all 8 services, JWT authorization with the `Authorization` header stripped before forwarding, `X-Internal-Key` for service-to-service calls, WebSocket negotiation with a direct signed connection to Game, timeout (504) and concurrent request limit (429). Game and Exam call other services through the gateway and have their own timeout (408) and limit (429). GitHub Actions in all three repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`. Gateway Postman collection and updated architecture diagram.
-- **Lab 2 (v2.0.0), World + Zombie:** reached only through the gateway (`/world`, `/zombie`), no auth checks (the gateway strips `Authorization`), timeout (408) and concurrent request limit (429) with `DEMO_MODE` for the demo, REST only. World verifies `ExamPassed` with Exam through the gateway's internal listener (`X-Internal-Key`) before unlocking a wing. Both seed MongoDB on start (`SEED_ON_START`), and the East Wing now needs the real Exam course PAD. GitHub Actions in both repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`.
+
