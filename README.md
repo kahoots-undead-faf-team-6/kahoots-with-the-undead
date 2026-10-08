@@ -73,7 +73,7 @@ graph TD
     Base ==>|via gateway: consume resources, geography| Gateway
 ```
 
-Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8080/exam/exams`):
+Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8081/exam/exams`):
 
 | From | To | Why |
 |---|---|---|
@@ -116,11 +116,11 @@ Logical dependencies between the services (every arrow below is now a call **thr
 - **Event notifications.** State changes other services care about (e.g. `ExamPassed`) are sent as HTTP POST notifications to the owning service (to be replaced by a message broker in later labs if required).
 - **Idempotency.** Requests that award or consume something carry an id (`actionId`, `examId`) so retries never apply twice.
 - **Format.** JSON, UTF-8, ids are UUID strings, timestamps are ISO 8601 (UTC). Errors use `{ "error": "CODE", "message": "text" }`.
-- **Through the gateway (Lab 2).** Services call each other at `http://gateway:8080/<service>/...` with `X-Internal-Key`, never directly. See 5.0.
+- **Through the gateway (Lab 2).** Services call each other at `http://gateway:8081/<service>/...` (internal listener), never directly. See 5.0.
 
 ### 5.0 API Gateway (owner: Alexandru Bujor) — port 8080
 
-Every REST call, from clients and between services, goes to `http://localhost:8080/<service>/<path>` (inside Docker: `http://gateway:8080/<service>/<path>`). The gateway forwards it to `<service>/<path>`: `GET /game/sessions` → Game `GET /sessions`.
+Every REST call goes through the gateway: clients use `http://localhost:8080/<service>/<path>`, services use the internal listener `http://gateway:8081/<service>/<path>`. The gateway forwards it to `<service>/<path>`: `GET /game/sessions` → Game `GET /sessions`.
 
 | Prefix | Service |
 |---|---|
@@ -142,7 +142,7 @@ Every REST call, from clients and between services, goes to `http://localhost:80
 | any | `/<service>/<path>` | forwarded as is | the service's response |
 
 **Authorization (at the gateway only).**
-- Clients send `Authorization: Bearer <JWT>`: either a gateway token (`POST /auth/token`; HS256, claims `sub` = player id, `role`, `iss`, `exp`) or a Player Service token (`POST /player/auth/login`, checked with `PLAYER_JWT_SECRET`, role `player`). Services calling each other send `X-Internal-Key: <INTERNAL_API_KEY>`.
+- Clients send `Authorization: Bearer <JWT>`: either a gateway token (`POST /auth/token`; HS256, claims `sub` = player id, `role`, `iss`, `exp`) or a Player Service token (`POST /player/auth/login`, checked with `PLAYER_JWT_SECRET`, role `player`). Services call each other through the internal listener `http://gateway:8081/<service>` (Docker network only, trusted as role `service`); Game and Exam also send `X-Internal-Key: <INTERNAL_API_KEY>`.
 - `POST /player/auth/login` and `POST /player/auth/register` are public (no token needed).
 - The gateway **removes** `Authorization`, `X-Internal-Key` and any client-sent `X-User-Id`/`X-User-Role`, and adds `X-User-Id`, `X-User-Role` (`player`, `admin`, `service`), `X-Request-Id`, `X-Forwarded-For`, `X-Forwarded-Prefix`. Services never validate tokens.
 - Admin-only: `POST`/`DELETE /exam/courses...`, `DELETE /game/sessions/{id}`.
@@ -214,7 +214,7 @@ Every REST call, from clients and between services, goes to `http://localhost:80
 - Reached through the gateway at `/game/...`. Port 3001 stays published only for the direct WebSocket.
 - **WebSocket:** `ws://localhost:3001/ws?sessionId=&playerId=&token=`. Get the URL from the gateway's `POST /ws/negotiate`. Without a valid token Game answers **401** `INVALID_WS_TOKEN`.
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
-- Outgoing calls use `http://gateway:8080/<service>` and send `X-Internal-Key`.
+- Outgoing calls use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`. World rooms (`{id}`) and Zombie types (`{id, code}`) are read in their real shape.
 
 **Calls Game Service makes to other services** (through the gateway from Lab 2):
  
@@ -296,7 +296,7 @@ Every REST call, from clients and between services, goes to `http://localhost:80
 #### Lab 2 updates
 - Reached only through the gateway at `/exam/...` (no published port). `POST`/`DELETE /exam/courses...` need an admin token.
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
-- Outgoing calls (World `ExamPassed`, Player rewards) use `http://gateway:8080/<service>` and send `X-Internal-Key`.
+- Outgoing calls (World `ExamPassed`, Player rewards) use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`.
 
 ### 5.4 Resource Service (owner: Mitu Vladlen) — port 3005
  
@@ -808,57 +808,58 @@ Track lab tasks on the linked [GitHub Project](#).
  
 **Requirements:** Docker Engine 24+ with Docker Compose v2.
  
-| Service | Port | Database | Seed data |
+| Service | Reached at | Database | Seed data |
 |---|---|---|---|
-| **API Gateway** | **8080** | none | – |
-| World Service | 3011 | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
-| Zombie Service | 3012 | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
-| Game Service | 3001 (WebSocket only) | PostgreSQL 16 (`game-db`) | `db-scripts/game-service/` |
-| Exam Service | – (gateway `/exam`) | PostgreSQL 16 (`exam-db`) | `db-scripts/exam-service/` |
-| Resource Service | 3005 | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
-| Base Service | 3006 | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
-| Crafting Service | 3031 | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
-| Player Service | 3032 | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
+| **API Gateway** | **`localhost:8080`** (clients), `gateway:8081` (services, not published) | none | – |
+| Game Service | `localhost:8080/game`; `localhost:3001` only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
+| Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
+| World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
+| Zombie Service | `localhost:8080/zombie` | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
+| Resource Service | `localhost:8080/resource` | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
+| Base Service | `localhost:8080/base` | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
+| Crafting Service | `localhost:8080/crafting` | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
+| Player Service | `localhost:8080/player` | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
 
-Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds database credentials and optional `*_VERSION` overrides.
+From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
 ```bash
-cp deploy/.env.example deploy/.env    # set every password and the 4 gateway secrets
+cp deploy/.env.example deploy/.env    # set every password and the gateway secrets
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 curl http://localhost:8080/health
-curl http://localhost:8080/health/services    # up/down for every service, through the gateway
+curl http://localhost:8080/health/services    # up/down for all 8 services, through the gateway
 
-# Lab 2: everything through the gateway
+# a gateway token ...
 TOKEN=$(curl -s -X POST localhost:8080/auth/token -H 'Content-Type: application/json' \
   -d '{"playerId":"aaaaaaaa-0000-4000-8000-000000000001"}' | sed 's/.*"accessToken":"\([^"]*\)".*/\1/')
-curl -H "Authorization: Bearer $TOKEN" localhost:8080/game/sessions
-curl -H "Authorization: Bearer $TOKEN" localhost:8080/exam/courses
-curl -i localhost:8080/game/sessions          # 401 MISSING_TOKEN
+# ... or log in through Player Service (public route; seeded users alice, bob, carol / password123)
+curl -s -X POST localhost:8080/player/auth/login -H 'Content-Type: application/json' -d '{"username":"alice","password":"password123"}'
 
-# Lab 1 direct checks (teammates' services still publish their ports)
-curl http://localhost:3005/health
-curl http://localhost:3006/health
-curl http://localhost:3011/health
-curl http://localhost:3012/health
-curl http://localhost:3031/health
-curl http://localhost:3032/health
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/game/sessions
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/world/rooms
+curl -i localhost:8080/game/sessions          # 401 MISSING_TOKEN
 ```
 
-**Who calls whom in the compose (Lab 2):**
-- Game → Exam, World, Zombie, Player and Exam → World, Player go **through the gateway** with `X-Internal-Key`.
-- Resource, Base, World, Zombie, Player and Crafting still use their Lab 1 settings until their owners switch them to `http://gateway:8080/...` and add `X-Internal-Key`.
-- Player Service routes marked 🔒 must read the caller from `X-User-Id`: the gateway validates the token and does not forward `Authorization`.
+To run a teammate's own Postman collection, set its `baseUrl` to `http://localhost:8080/<service>` and add a Bearer token (Authorization tab of the collection).
 
-**Who calls whom in the compose (Lab 1):**
-- Game → Exam, World, Zombie, Player: real calls. Game → Resource: Game's built-in mock, because Resource has no `POST /resources/steal` yet and its gather body differs (`amount` instead of `actionType`). To be aligned in Lab 2.
-- Exam → World (`ExamPassed`), Exam → Player (rewards): real calls.
-- Base → Resource: real call. Resource and Base → Player/World: their built-in mocks (`CLIENT_MODE=mock`).
-- Crafting → Player (level, deliver item): real call. Crafting → Resource, Exam, World: built-in mocks (`*_CLIENT=mock`), switched to `http` in Lab 2.
-  (Resource's built-in Player mock only knows `player-1..3`, while every other service uses the Player Service UUIDs. That gets aligned when Resource calls the real Player Service.)
- 
+**Who calls whom (Lab 2): every call goes through the gateway's internal listener `http://gateway:8081/<service>`.**
+
+| From | To | Mode | Notes |
+|---|---|---|---|
+| Game | Exam, World, Zombie, Player | real | Game reads World's `{id}` rooms and Zombie's `{id, code}` types |
+| Game | Resource | Game's mock | Resource has no `POST /resources/steal` and gather takes `amount` |
+| Exam | World (`ExamPassed`), Player (rewards) | real | |
+| Base | Resource | real | `RESOURCE_SERVICE_URL=http://gateway:8081/resource/resources` (Base posts `{URL}/consume`) |
+| Base | Player, World | Base's mocks | Base's players are `player-1..3` and rooms `FAF_CAB`, not Player/World ids |
+| Resource | Player, World | Resource's mocks (`CLIENT_MODE=mock`) | same `player-1..3` ids; World has `/resource-nodes/{id}`, Resource calls `/nodes/{id}` |
+| Crafting | Player | real | level check + delivers the crafted item |
+| Crafting | Resource | Crafting's mock | Resource's mock only knows `player-1..3` |
+| Player | – | – | 🔒 routes take the caller from `X-User-Id` (`TRUST_GATEWAY_HEADERS=true`, player-service PR #4) |
+
+Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `http` is enough once the ids or paths above are aligned.
+
 Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
 
-World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=... node seed.js`, same for `zombie-service`. Health checks: `curl http://localhost:3011/health` and `curl http://localhost:3012/health`.
+World and Zombie use MongoDB and are seeded by hand (they skip if the database is not empty): `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012. Without the seed, Game finds no rooms or zombie types.
  
 ## 11. Changelog
  
