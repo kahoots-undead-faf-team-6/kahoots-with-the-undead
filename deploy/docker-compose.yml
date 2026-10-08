@@ -3,9 +3,7 @@
 #   cp deploy/.env.example deploy/.env    # then set the passwords
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 #
-# Every service owns its database. Services owned by other teammates are added by their owners via PR.
-# Until then they run as placeholder mocks (hashicorp/http-echo) so the stack has all 8 services,
-# and Game/Exam keep their *_SERVICE_URL empty for them, which switches on their built-in mocks.
+# Every service owns its database (and a named volume for it). All 8 services run their real images.
 
 services:
   # ======================= Game Service (Alexandru) =======================
@@ -25,7 +23,7 @@ services:
       WORLD_SERVICE_URL: http://world-service:3011
       ZOMBIE_SERVICE_URL: http://zombie-service:3012
       RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
-      PLAYER_SERVICE_URL: http://player-service:3032   # WireMock stand-in (see mocks/player-service)
+      PLAYER_SERVICE_URL: http://player-service:3032
     depends_on:
       game-db:
         condition: service_healthy
@@ -71,7 +69,7 @@ services:
       DB_NAME: ${EXAM_DB_NAME}
       SEED_ON_START: "true"
       WORLD_SERVICE_URL: http://world-service:3011   # ExamPassed -> unlock wing
-      PLAYER_SERVICE_URL: http://player-service:3032   # WireMock stand-in (see mocks/player-service)
+      PLAYER_SERVICE_URL: http://player-service:3032
     depends_on:
       exam-db:
         condition: service_healthy
@@ -217,29 +215,78 @@ services:
       interval: 5s
       retries: 10
 
-  # ---- Player + Crafting (owner: Gabriel) -- STAND-IN MOCKS, not Gabriel's implementation ----
-  # WireMock serves the contract endpoints from ../mocks/<service>/mappings (public image, no build:).
-  # Every response carries "mock": true and the header X-Mock. Gabriel replaces these two blocks
-  # with his real images + PostgreSQL via PR.
-  crafting-service:
-    image: wiremock/wiremock:3.9.1
+  # ======================= Player Service (Gabriel) =======================
+  player-service:
+    image: gabriel120405/player-service:${PLAYER_VERSION:-1.0.0}
     restart: unless-stopped
-    command: ["--port", "3031", "--global-response-templating", "--disable-banner"]
+    environment:
+      PORT: "3032"
+      STORAGE: postgres
+      DATABASE_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:5432/${PLAYER_DB_NAME}
+      SEED_ON_START: "true"
+      JWT_SECRET: ${PLAYER_JWT_SECRET}
+    depends_on:
+      player-db:
+        condition: service_healthy
+    ports:
+      - "3032:3032"
+
+  player-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PLAYER_DB_USER}
+      POSTGRES_PASSWORD: ${PLAYER_DB_PASSWORD}
+      POSTGRES_DB: ${PLAYER_DB_NAME}
     volumes:
-      - ../mocks/crafting-service/mappings:/home/wiremock/mappings:ro   # stub definitions from the repo
-      - crafting-mock-data:/home/wiremock/__files                       # named volume for response files
+      - player-db-data:/var/lib/postgresql/data
+      - ../db-scripts/player-service:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5442:5432"
+
+  # ======================= Crafting Service (Gabriel) =======================
+  crafting-service:
+    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-1.0.0}
+    restart: unless-stopped
+    environment:
+      PORT: "3031"
+      STORAGE: postgres
+      DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
+      SEED_ON_START: "true"
+      PLAYER_CLIENT: http          # real call: player level + deliver the crafted item
+      PLAYER_SERVICE_URL: http://player-service:3032
+      RESOURCE_CLIENT: mock        # Lab 1: mocked (Resource's own Player mock only knows player-1..3, see README)
+      RESOURCE_SERVICE_URL: http://resource-service:3001
+      EXAM_CLIENT: mock            # Lab 1: unlock conditions mocked
+      WORLD_CLIENT: mock
+    depends_on:
+      crafting-db:
+        condition: service_healthy
+      player-service:
+        condition: service_started
     ports:
       - "3031:3031"
 
-  player-service:
-    image: wiremock/wiremock:3.9.1
+  crafting-db:
+    image: postgres:16-alpine
     restart: unless-stopped
-    command: ["--port", "3032", "--global-response-templating", "--disable-banner"]
+    environment:
+      POSTGRES_USER: ${CRAFTING_DB_USER}
+      POSTGRES_PASSWORD: ${CRAFTING_DB_PASSWORD}
+      POSTGRES_DB: ${CRAFTING_DB_NAME}
     volumes:
-      - ../mocks/player-service/mappings:/home/wiremock/mappings:ro   # stub definitions from the repo
-      - player-mock-data:/home/wiremock/__files                       # named volume for response files
+      - crafting-db-data:/var/lib/postgresql/data
+      - ../db-scripts/crafting-service:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
     ports:
-      - "3032:3032"
+      - "127.0.0.1:5441:5432"
 
 volumes:
   game-db-data:
@@ -248,5 +295,5 @@ volumes:
   zombie-mongo-data:
   resource-db-data:
   base-db-data:
-  player-mock-data:
-  crafting-mock-data:
+  player-db-data:
+  crafting-db-data:
