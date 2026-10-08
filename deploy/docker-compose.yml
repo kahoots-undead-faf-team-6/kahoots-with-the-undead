@@ -221,16 +221,22 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: mituvladlen/base-service:${BASE_VERSION:-1.0.0}
+    image: mituvladlen/base-service:${BASE_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
-      PORT: "3002"                 # inside the container; published on 3006
+      PORT: "3002"
       STORAGE: postgres
       DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
-      SEED_ON_START: "true"
-      CLIENT_MODE: mock            # Player and World mocked
+      CLIENT_MODE: mock            # Player and World mocked (Base still uses player-1..3)
       RESOURCE_CLIENT: http        # real call to Resource Service, through the gateway
+      # Lab 2: every call to another service goes through the gateway
       RESOURCE_SERVICE_URL: http://gateway:8081/resource/resources   # Base posts {URL}/consume -> Resource /resources/consume
+      PLAYER_SERVICE_URL: http://gateway:8081/player
+      WORLD_SERVICE_URL: http://gateway:8081/world
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       base-db:
         condition: service_healthy
