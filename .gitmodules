@@ -18,3 +18,11 @@
 	path = services/base-service
 	url = https://github.com/kahoots-undead-faf-team-6/base-service.git
 	branch = development
+[submodule "services/crafting-service"]
+	path = services/crafting-service
+	url = https://github.com/kahoots-undead-faf-team-6/crafting-service.git
+	branch = development
+[submodule "services/player-service"]
+	path = services/player-service
+	url = https://github.com/kahoots-undead-faf-team-6/player-service.git
+	branch = development
