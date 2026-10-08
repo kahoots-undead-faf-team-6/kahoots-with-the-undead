@@ -148,6 +148,12 @@ services:
       STORAGE: mongo
       MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
       MONGO_DB: world
+      # Lab 2: ExamPassed is verified with Exam through the gateway
+      EXAM_SERVICE_URL: http://gateway:8081/exam
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       - world-mongo
     # no published port: reach it through the gateway at /world
@@ -173,6 +179,9 @@ services:
       STORAGE: mongo
       MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
       MONGO_DB: zombie
+      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+      DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
       - zombie-mongo
     # no published port: reach it through the gateway at /zombie
