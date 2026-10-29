@@ -37,41 +37,61 @@ a distinct slice of state and behavior.
 
 From Lab 2 the **API Gateway** is the single entry point. Clients and services send every REST request to it; it validates the caller (JWT for clients, `X-Internal-Key` for services), applies its limits and forwards the request without the credentials. The only traffic that bypasses it is the live WebSocket to Game, which the gateway negotiates and the client then opens directly.
 
+From Lab 3 every service runs as **2–3 replicas** behind **Service Discovery**. Each instance registers itself and sends heartbeats. The gateway asks Service Discovery for the live instances of a service and spreads the requests over them round-robin. Circuit breakers in the gateway and in the services remove a failing instance from Service Discovery. The rules are in [`docs/lab3-contract.md`](./docs/lab3-contract.md).
+
 ```mermaid
 graph TD
     Client([Client / Postman])
-    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · timeout · concurrency limit}}
+    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · limits · round-robin · circuit breaker}}
+    SD[(Service Discovery<br/>Python · FastAPI · :8500<br/>registry · health checks · quarantine)]
+    Alerts[/Telegram · Discord/]
 
     subgraph Services
-        Player[Player Service]
-        Game[Game Service]
-        Exam[Exam Service]
-        World[World Service]
-        Zombie[Zombie Service]
-        Resource[Resource Service]
-        Base[Base Service]
-        Crafting[Crafting Service]
+        Player[Player Service ×2]
+        subgraph GameCluster["Game Service ×2"]
+            Game1[game-service-1]
+            Game2[game-service-2]
+            GameDB[(Game PostgreSQL<br/>LISTEN / NOTIFY)]
+        end
+        Exam[Exam Service ×2]
+        World[World Service ×2]
+        Zombie[Zombie Service ×2]
+        Resource[Resource Service ×2]
+        Base[Base Service ×2]
+        Crafting[Crafting Service ×2]
     end
 
     Client -->|REST + Bearer JWT| Gateway
     Client -->|1. POST /ws/negotiate| Gateway
-    Client -.->|2. WebSocket, direct, signed token| Game
+    Client -.->|2. WebSocket, direct, to the session's owner instance| Game1
 
-    Gateway -->|/game| Game
-    Gateway -->|/exam| Exam
-    Gateway -->|/world| World
-    Gateway -->|/zombie| Zombie
-    Gateway -->|/resource| Resource
-    Gateway -->|/base| Base
-    Gateway -->|/crafting| Crafting
-    Gateway -->|/player| Player
+    Gateway -->|GET /services/name, cached 2 s| SD
+    Gateway -->|round-robin /game| Game1
+    Gateway -->|round-robin /game| Game2
+    Gateway -->|round-robin /exam, /world, /zombie, /resource, /base, /crafting, /player| Services
 
-    Game ==>|via gateway: exam on Professor Zombie, rooms, zombie config, resources, XP| Gateway
-    Exam ==>|via gateway: ExamPassed, rewards| Gateway
-    Crafting ==>|via gateway: materials, item transfer| Gateway
-    Resource ==>|via gateway: player / world checks| Gateway
-    Base ==>|via gateway: consume resources, geography| Gateway
+    Game1 <-->|event relay| GameDB
+    Game2 <-->|event relay| GameDB
+
+    Services ==>|calls to other services, via gateway :8081| Gateway
+
+    Services -->|register · heartbeat every 5 s| SD
+    Gateway -->|register · heartbeat| SD
+    SD -->|polls GET /status every 10 s| Services
+    SD -->|WARN / CRITICAL alerts| Alerts
+
+    Gateway -.->|circuit breaker: DELETE instance| SD
+    Services -.->|circuit breaker: DELETE instance| SD
 ```
+
+**Legend**
+- **Solid arrow `-->`**: a REST call. All client and service-to-service traffic goes through the gateway: port **8080** for clients, **8081** inside the Docker network.
+- **Thick arrow `==>`**: a service calling another service, through the gateway.
+- **Dotted arrow from Client**: the only traffic that bypasses the gateway. After `POST /ws/negotiate`, the client opens the WebSocket directly on the Game instance that owns its session (`game-service-N`).
+- **Dotted arrows to Service Discovery**: circuit-breaker removal. After 3 failures of one instance in 3.5 × the timeout, the caller sends `DELETE /instances/{id}?reason=circuit-breaker`. Service Discovery quarantines that instance, and the healthy replicas keep serving.
+- **Game PostgreSQL `LISTEN/NOTIFY`**: relays game events between Game instances, so a player connected to any instance gets them.
+- **Service Discovery** polls every instance's `GET /status`, marks an instance `DOWN` after failed checks, and sends `WARN`/`CRITICAL` alerts to Telegram and Discord.
+- **`×2`**: the replicas from `deploy.replicas` in `deploy/docker-compose.yml`. Each one has its own `instanceId`, and the replicas of one service share their database.
 
 Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8081/exam/exams`):
 
@@ -156,6 +176,12 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | Gateway | **504** `GATEWAY_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `BAD_GATEWAY` |
 | Game, Exam, World, Zombie | **408** `REQUEST_TIMEOUT` | **429** `TOO_MANY_REQUESTS` + `Retry-After` | **502** `UPSTREAM_ERROR` |
 
+#### Lab 3 updates
+- **Round-robin:** the gateway asks Service Discovery for `GET /services/<prefix>-service` and rotates over the live instances, with one counter per service. Every response carries `X-Instance-Id` and `X-Served-By`; a failed instance's `502`/`504` also carries `X-Upstream-Error`. No instance gives **503** `NO_INSTANCES`.
+- **WebSocket:** `POST /ws/negotiate` returns the URL of the Game instance that owns the session, with `"instanceId"` in the answer.
+- **New:** `GET /status`, JSON logs with `X-Request-Id`, and registration in Service Discovery.
+- **Shared rules:** [`docs/lab3-contract.md`](./docs/lab3-contract.md) (Service Discovery API, `/status` format, logs, headers, circuit breaker).
+
 **Gateway errors:** `MISSING_TOKEN`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_INTERNAL_KEY` (401); `FORBIDDEN` (403); `SERVICE_NOT_FOUND` (404); `PLAYER_NOT_IN_SESSION` (409); `INVALID_BODY`, `INVALID_ROLE` (400); `TOO_MANY_REQUESTS` (429); `BAD_GATEWAY` (502); `GATEWAY_TIMEOUT` (504).
 
 ### 5.2 Game Service (owner: Alexandru Bujor) — port 3001
@@ -215,6 +241,15 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 - **WebSocket:** `ws://localhost:3001/ws?sessionId=&playerId=&token=`. Get the URL from the gateway's `POST /ws/negotiate`. Without a valid token Game answers **401** `INVALID_WS_TOKEN`.
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
 - Outgoing calls use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`. World rooms (`{id}`) and Zombie types (`{id, code}`) are read in their real shape.
+
+#### Lab 3 updates
+- **Session** also returns `ownerInstance`: the Game instance that runs its timers. The gateway sends the players' WebSockets to it.
+- **Several instances:**
+  - Events go between instances through PostgreSQL `LISTEN/NOTIFY`.
+  - Only the owner ticks a session. A dead owner is replaced after 10 s.
+  - Every change to a session takes a PostgreSQL advisory lock.
+- **New endpoints:** `GET /status`. With `DEMO_MODE=true`: `POST /debug/fail?enabled=true|false` (the instance answers 500 to everything else).
+- **Circuit breaker:** on every outgoing call. 3 failures in 3.5 × `REQUEST_TIMEOUT_MS` remove the failing instance from Service Discovery, or open the breaker (**503** `CIRCUIT_OPEN`) in `log` mode.
 
 **Calls Game Service makes to other services** (through the gateway from Lab 2):
  
@@ -297,6 +332,11 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 - Reached only through the gateway at `/exam/...` (no published port). `POST`/`DELETE /exam/courses...` need an admin token.
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
 - Outgoing calls (World `ExamPassed`, Player rewards) use `http://gateway:8081/<service>` (internal listener) and also send `X-Internal-Key`.
+
+#### Lab 3 updates
+- **Several instances:** starting, submitting, abandoning and expiring an exam take a PostgreSQL advisory lock per player or exam. An exam is graded once and attempt numbers stay unique.
+- **New endpoints:** `GET /status`. With `DEMO_MODE=true`: `POST /debug/fail?enabled=true|false`.
+- **Circuit breaker:** on the calls to World and Player, same rule as Game.
 
 ### 5.4 Resource Service (owner: Mitu Vladlen) — port 3005
  
@@ -809,7 +849,8 @@ Nobody calls Crafting Service yet. The client (or Game Service) calls `POST /cra
 ### Repository structure
 ```
 kahoots-with-the-undead/
-├── services/        # private microservice repos + gateway, linked as git submodules
+├── services/        # private microservice repos + gateway + service-discovery, linked as git submodules
+├── docs/            # shared contracts (Lab 3: discovery, status, logs, circuit breaker)
 ├── postman/         # Postman collections, one per service
 ├── deploy/          # docker-compose.yml (DockerHub images only)
 ├── db-scripts/      # seed scripts, one folder per service
@@ -828,13 +869,14 @@ git submodule update --init --recursive
  
 | Service | DockerHub | Private Repo (submodule) |
 |---|---|---|
-| **API Gateway** | [alexandrubujor1/gateway:2.0.0](https://hub.docker.com/r/alexandrubujor1/gateway) | [gateway](https://github.com/kahoots-undead-faf-team-6/gateway) (private) |
+| **API Gateway** | [alexandrubujor1/gateway:3.0.0](https://hub.docker.com/r/alexandrubujor1/gateway) | [gateway](https://github.com/kahoots-undead-faf-team-6/gateway) (private) |
+| **Service Discovery** | `<user>/service-discovery:3.0.0` | [service-discovery](https://github.com/kahoots-undead-faf-team-6/service-discovery) (private) |
 | Player Service | [gabriel120405/player-service:2.0.0](https://hub.docker.com/r/gabriel120405/player-service) | [player-service](https://github.com/kahoots-undead-faf-team-6/player-service) (private) |
-| Game Service | [alexandrubujor1/game-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
-| Exam Service | [alexandrubujor1/exam-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
+| Game Service | [alexandrubujor1/game-service:3.0.0](https://hub.docker.com/r/alexandrubujor1/game-service) | [game-service](https://github.com/kahoots-undead-faf-team-6/game-service) (private) |
+| Exam Service | [alexandrubujor1/exam-service:3.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
 | World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
 | Zombie Service | [mihaim888/zombie-service:2.0.0](https://hub.docker.com/r/mihaim888/zombie-service) | [zombie-service](https://github.com/kahoots-undead-faf-team-6/zombie-service) (private) |
-| Resource Service | [mituvladlen/resource-service:1.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
+| Resource Service | [mituvladlen/resource-service:2.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
 | Base Service | [alexandrubujor1/base-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | [gabriel120405/crafting-service:2.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
  
@@ -849,6 +891,15 @@ with `*_CLIENT=http`. Both read `REQUEST_TIMEOUT_MS`, `MAX_CONCURRENT_REQUESTS` 
  
 Postman collections for each service live in [`/postman`](./postman).
  
+- `lab3-scaling.postman_collection.json`: **Lab 3**, 31 requests in 8 folders against `http://localhost:8080` and Service Discovery on `http://localhost:8500`:
+  - the registry (2 replicas per service, `game-1..3` with their WebSocket URLs), and `/status` of every service;
+  - round-robin (6 requests per service, rotation checked from `X-Instance-Id`), and `X-Request-Id` kept and returned;
+  - the Game session owner and the WebSocket negotiated on it;
+  - the circuit breaker removing a failing Exam instance (needs `DEMO_MODE=true`; restart `exam-service` afterwards), and quarantine;
+  - the Telegram/Discord test alert.
+
+  Run it on a freshly started stack: `npx newman run postman/lab3-scaling.postman_collection.json`
+- `lab2-presentation.postman_collection.json`: **Lab 2 presentation**, 67 requests in grade order against `http://localhost:8080` (set `adminKey` from `deploy/.env`, run with `setup-env.sh --demo`)
 - `lab2-gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game, Exam, Player and Crafting flows, WebSocket negotiation, 401/403/404, 408, 429 (parallel burst) and 504
 - `game-service.postman_collection.json`: Game Service (port 3001)
 - `world-service.postman_collection.json`: World Service (port 3011). Folder *Lab 2: ExamPassed through the gateway* runs against the team stack (port 8080)
@@ -871,7 +922,7 @@ Track lab tasks on the linked [GitHub Project](#).
 | Service | Reached at | Database | Seed data |
 |---|---|---|---|
 | **API Gateway** | **`localhost:8080`** (clients), `gateway:8081` (services, not published) | none | – |
-| Game Service | `localhost:8080/game`; `localhost:3001` only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
+| Game Service | `localhost:8080/game`; `localhost:3101`–`3103` (one per instance) only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
 | Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
 | World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
 | Zombie Service | `localhost:8080/zombie` | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
@@ -879,6 +930,7 @@ Track lab tasks on the linked [GitHub Project](#).
 | Base Service | `localhost:8080/base` | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
 | Crafting Service | `localhost:8080/crafting` | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
 | Player Service | `localhost:8080/player` | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
+| Service Discovery (Lab 3) | `localhost:8500` (published only to show the registry) | none, in memory | – |
 
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
@@ -924,6 +976,37 @@ Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `htt
 Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
 
 World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_START=true`, only when the database is empty), so Game finds rooms and zombie types right away. To reseed by hand, the same data is in `db-scripts/`: `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012.
+
+### Lab 3: several instances behind Service Discovery
+
+Every service runs **2 replicas** (`<NAME>_REPLICAS` in `deploy/.env`), and Game runs three named instances, `game-service-1`/`-2`/`-3`, each with its own WebSocket port (3101–3103). Every instance registers in **Service Discovery** on startup and sends a heartbeat every 5 s. The gateway asks Service Discovery for the live instances and spreads the requests over them with round-robin. The replicas of a service share its one database. Rules: [`docs/lab3-contract.md`](./docs/lab3-contract.md).
+
+```bash
+dc() { docker compose -f deploy/docker-compose.yml --env-file deploy/.env "$@"; }   # bash and zsh
+dc up -d
+dc ps                                        # 2 replicas per service, game-service-1..3, service-discovery
+
+# the registry: every instance, with its address, status and load
+curl -s localhost:8500/services
+curl -s localhost:8500/services/world-service
+curl -s localhost:8500/status                # Service Discovery's own status and registry size
+
+# round-robin: every response names the instance that answered
+for i in $(seq 6); do curl -s -o /dev/null -D - localhost:8080/world/rooms -H "Authorization: Bearer $TOKEN" | grep -i x-instance-id; done
+
+# scale up: the new instance is in Service Discovery and in the gateway rotation within 5 s
+dc up -d --scale world-service=3
+curl -s localhost:8500/services/world-service
+
+# stop one replica: it deregisters on SIGTERM and leaves the gateway rotation within 2 s (DISCOVERY_CACHE_MS)
+docker stop deploy-world-service-3
+
+# follow the JSON logs (registrations, heartbeats at DEBUG, round-robin, circuit breaker)
+dc logs -f gateway service-discovery
+dc logs -f world-service | grep '"level":"ERROR"'
+```
+
+A replica that is killed without SIGTERM (`docker kill`) is removed after `HEARTBEAT_TTL_SECONDS` (15 s) without heartbeats. For the demo, uncomment the Lab 3 demo block in `deploy/.env`: low limits, health checks every 3 s, and a 20 s circuit breaker window (read by Game, Exam, World and Zombie, which load `deploy/.env`).
  
 ## 11. Changelog
  
@@ -934,3 +1017,9 @@ World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_ST
 - **Lab 1 (v1.0.0), Player + Crafting:** CRUD services in TypeScript (Node.js 22, Express 5), PostgreSQL per service with named volumes, multi-arch public DockerHub images, seed scripts (3 players with inventories, 5 recipes), Postman collections, unit test coverage of ~99% (same tests on the in-memory and PostgreSQL stores), atomic trades (row locks in one transaction) and crafting (idempotent consume + grant, refund on failure). Resource, Exam and World are mocked behind client interfaces in Crafting. The WireMock stand-ins are removed.
 - **Lab 2 (v2.0.0), API Gateway + Game + Exam:** new `gateway` service in Python (FastAPI) as the single entry point: routes to all 8 services, JWT authorization with the `Authorization` header stripped before forwarding, `X-Internal-Key` for service-to-service calls, WebSocket negotiation with a direct signed connection to Game, timeout (504) and concurrent request limit (429). Game and Exam call other services through the gateway and have their own timeout (408) and limit (429). GitHub Actions in all three repos test PRs and push `:2.0.0` and `:latest` to DockerHub on merge to `main`. Gateway Postman collection and updated architecture diagram.
 - **Lab 2 (v2.0.0), Player + Crafting:** REST only, behind the gateway, with no published ports. No auth downstream: the caller comes from `X-User-Id` / `X-User-Role`, and Player still issues the login JWT that the gateway validates. Crafting calls Player, Resource, Exam and World through the gateway (`*_SERVICE_URL`, `X-Internal-Key`). Each service has its own request timeout (408) and concurrent request limit (429) from `REQUEST_TIMEOUT_MS` / `MAX_CONCURRENT_REQUESTS`, plus `/debug/slow` with `DEMO_MODE=true`. GitHub Actions tests every PR (memory + PostgreSQL, coverage ≥ 80%) and pushes multi-arch `:2.0.0` + `:latest` on merge to `main`. The Lab 2 Postman collection is renamed `lab2-gateway` and extended with the Player and Crafting flows, the 429 burst and the services' 408.
+- **Lab 3 (v3.0.0), Service Discovery repo + Gateway + Game + Exam:**
+  - New private `service-discovery` repo (Python, FastAPI) with README, PR template and CI, added as a submodule.
+  - Shared Lab 3 contract in `docs/lab3-contract.md`.
+  - The gateway does round-robin over the instances in Service Discovery, and negotiates the WebSocket on the instance that owns the session.
+  - Game and Exam have `GET /status`, JSON logs with request ids, registration with heartbeats, and a circuit breaker that removes failing instances.
+  - Game runs on several instances: event relay through `LISTEN/NOTIFY`, session owners, advisory locks. Exam uses advisory locks too.

@@ -1,0 +1,1315 @@
+{
+  "info": {
+    "name": "Lab 3 - Scaling Up",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Lab 3 checks for the team stack (deploy/docker-compose.yml). Run the folders in order with the Collection Runner or Newman. Variables: gatewayUrl (http://localhost:8080) and sdUrl (http://localhost:8500); the token comes from '0. Setup' and is sent with collection-level Bearer auth. Folder 6 needs DEMO_MODE=true and makes one Exam instance fail on purpose: restart exam-service afterwards. Folder 7 needs the Service Discovery alerts (Gabriel) and a Telegram/Discord channel in deploy/.env."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "gatewayUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "sdUrl",
+      "value": "http://localhost:8500"
+    },
+    {
+      "key": "playerId",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    },
+    {
+      "key": "ownerInstance",
+      "value": ""
+    },
+    {
+      "key": "wsUrl",
+      "value": ""
+    },
+    {
+      "key": "failingInstance",
+      "value": ""
+    },
+    {
+      "key": "rr_world",
+      "value": "[]"
+    },
+    {
+      "key": "rr_exam",
+      "value": "[]"
+    },
+    {
+      "key": "rr_game",
+      "value": "[]"
+    },
+    {
+      "key": "cb_ids",
+      "value": "[]"
+    },
+    {
+      "key": "cb_count",
+      "value": "0"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup",
+      "description": "",
+      "item": [
+        {
+          "name": "Get player token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/token",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"playerId\")) pm.collectionVariables.set(\"playerId\", \"aaaaaaaa-0000-4000-8000-000000000001\"); // seeded alice"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"token\", pm.response.json().accessToken);",
+                  "[\"rr_world\", \"rr_exam\", \"rr_game\", \"cb_ids\"].forEach(k => pm.collectionVariables.set(k, \"[]\"));",
+                  "pm.collectionVariables.set(\"cb_count\", \"0\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Service Discovery (Grades 3, 4)",
+      "description": "",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/health",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"service-discovery\", () => pm.expect(pm.response.json().service).to.eql(\"service-discovery\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Registry: every instance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/services",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "services"
+              ]
+            },
+            "description": "Every service registers on startup. Expect 2 replicas of each service, game-1..3 and gateway-1.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const services = pm.response.json().services;",
+                  "const up = n => (services[n] || []).filter(i => i.status === \"UP\");",
+                  "[\"gateway\", \"game-service\", \"exam-service\", \"world-service\", \"zombie-service\", \"resource-service\", \"base-service\", \"crafting-service\", \"player-service\"].forEach(n => pm.test(n + \" is registered\", () => pm.expect(up(n).length).to.be.at.least(1)));",
+                  "[\"exam-service\", \"world-service\", \"zombie-service\", \"resource-service\", \"base-service\", \"crafting-service\", \"player-service\"].forEach(n => pm.test(n + \" has 2+ instances UP\", () => pm.expect(up(n).length).to.be.at.least(2)));",
+                  "pm.test(\"game has 3 instances with metadata.wsUrl\", () => {",
+                  "  const g = up(\"game-service\");",
+                  "  pm.expect(g.length).to.eql(3);",
+                  "  g.forEach(i => pm.expect(i.metadata.wsUrl).to.match(/^ws:\\/\\/localhost:310[1-3]\\/ws$/));",
+                  "});",
+                  "pm.test(\"instance shape (contract §1)\", () => {",
+                  "  const i = up(\"gateway\")[0];",
+                  "  [\"instanceId\", \"name\", \"host\", \"port\", \"url\", \"metadata\", \"status\", \"registeredAt\", \"lastHeartbeatAt\"].forEach(k => pm.expect(i).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lookup: live Game instances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/services/game-service",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "services",
+                "game-service"
+              ]
+            },
+            "description": "What the gateway asks for before every /game request (cached 2 s).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().instances.map(i => i.instanceId);",
+                  "pm.test(\"game-1, game-2, game-3\", () => pm.expect(ids).to.eql([\"game-1\", \"game-2\", \"game-3\"]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown service -> empty list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/services/no-such-service",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "services",
+                "no-such-service"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"no instances\", () => pm.expect(pm.response.json().instances).to.eql([]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Service Discovery status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/status",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"registry size\", () => pm.expect(s.registry.instances).to.be.at.least(15));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. GET /status of every service (Grade 2)",
+      "description": "",
+      "item": [
+        {
+          "name": "Gateway /status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service-discovery dependency UP\", () => pm.expect(s.dependencies[\"service-discovery\"]).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "game /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/game/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is game-service\", () => pm.expect(s.service).to.eql(\"game-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "exam /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is exam-service\", () => pm.expect(s.service).to.eql(\"exam-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "world /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/world/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "world",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is world-service\", () => pm.expect(s.service).to.eql(\"world-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "zombie /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/zombie/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "zombie",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is zombie-service\", () => pm.expect(s.service).to.eql(\"zombie-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "resource /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/resource/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "resource",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is resource-service\", () => pm.expect(s.service).to.eql(\"resource-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "base /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/base/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "base",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is base-service\", () => pm.expect(s.service).to.eql(\"base-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "crafting /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/crafting/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "crafting",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is crafting-service\", () => pm.expect(s.service).to.eql(\"crafting-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "player /status (through the gateway)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/player/status",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "player",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"contract fields (docs/lab3-contract.md §2)\", () => {",
+                  "  [\"service\", \"instanceId\", \"version\", \"status\", \"uptimeSeconds\", \"inFlight\", \"maxConcurrent\", \"load\",",
+                  "   \"requestsTotal\", \"errorsTotal\", \"dependencies\", \"circuitBreakers\", \"timestamp\"].forEach(k => pm.expect(s).to.have.property(k));",
+                  "});",
+                  "pm.test(\"status is UP or DEGRADED\", () => pm.expect([\"UP\", \"DEGRADED\"]).to.include(s.status));",
+                  "pm.test(\"load between 0 and 1\", () => { pm.expect(s.load).to.be.at.least(0); pm.expect(s.load).to.be.at.most(1); });",
+                  "pm.test(\"version 3.0.0\", () => pm.expect(s.version).to.eql(\"3.0.0\"));",
+                  "pm.test(\"service is player-service\", () => pm.expect(s.service).to.eql(\"player-service\"));",
+                  "pm.test(\"X-Instance-Id = instanceId\", () => pm.expect(pm.response.headers.get(\"X-Instance-Id\")).to.eql(s.instanceId));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Round-robin load balancing (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Round-robin over world (6 requests)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/world/rooms",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "Runs 6 times in a row (postman.setNextRequest) and collects X-Instance-Id. Every instance of the service must answer at least once."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ids = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By and X-Instance-Id\", () => { pm.response.to.have.header(\"X-Served-By\"); pm.response.to.have.header(\"X-Instance-Id\"); });",
+                  "ids.push(pm.response.headers.get(\"X-Instance-Id\"));",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(ids));",
+                  "if (ids.length < 6) { postman.setNextRequest(pm.info.requestName); } else {",
+                  "  const distinct = [...new Set(ids)];",
+                  "  console.log(\"instances in order:\", ids.join(\" -> \"));",
+                  "  pm.test(\"requests spread over at least 2 instances: \" + distinct.join(\", \"), () => pm.expect(distinct.length).to.be.at.least(2));",
+                  "  pm.test(\"strict rotation (no instance twice in a row)\", () => ids.slice(1).forEach((id, i) => pm.expect(id).to.not.eql(ids[i])));",
+                  "  pm.collectionVariables.set(\"rr_world\", \"[]\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Round-robin over exam (6 requests)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/courses",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ]
+            },
+            "description": "Runs 6 times in a row (postman.setNextRequest) and collects X-Instance-Id. Every instance of the service must answer at least once."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ids = JSON.parse(pm.collectionVariables.get(\"rr_exam\") || \"[]\");",
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By and X-Instance-Id\", () => { pm.response.to.have.header(\"X-Served-By\"); pm.response.to.have.header(\"X-Instance-Id\"); });",
+                  "ids.push(pm.response.headers.get(\"X-Instance-Id\"));",
+                  "pm.collectionVariables.set(\"rr_exam\", JSON.stringify(ids));",
+                  "if (ids.length < 6) { postman.setNextRequest(pm.info.requestName); } else {",
+                  "  const distinct = [...new Set(ids)];",
+                  "  console.log(\"instances in order:\", ids.join(\" -> \"));",
+                  "  pm.test(\"requests spread over at least 2 instances: \" + distinct.join(\", \"), () => pm.expect(distinct.length).to.be.at.least(2));",
+                  "  pm.test(\"strict rotation (no instance twice in a row)\", () => ids.slice(1).forEach((id, i) => pm.expect(id).to.not.eql(ids[i])));",
+                  "  pm.collectionVariables.set(\"rr_exam\", \"[]\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Round-robin over game (6 requests)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ]
+            },
+            "description": "Runs 6 times in a row (postman.setNextRequest) and collects X-Instance-Id. Every instance of the service must answer at least once."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ids = JSON.parse(pm.collectionVariables.get(\"rr_game\") || \"[]\");",
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By and X-Instance-Id\", () => { pm.response.to.have.header(\"X-Served-By\"); pm.response.to.have.header(\"X-Instance-Id\"); });",
+                  "ids.push(pm.response.headers.get(\"X-Instance-Id\"));",
+                  "pm.collectionVariables.set(\"rr_game\", JSON.stringify(ids));",
+                  "if (ids.length < 6) { postman.setNextRequest(pm.info.requestName); } else {",
+                  "  const distinct = [...new Set(ids)];",
+                  "  console.log(\"instances in order:\", ids.join(\" -> \"));",
+                  "  pm.test(\"requests spread over at least 2 instances: \" + distinct.join(\", \"), () => pm.expect(distinct.length).to.be.at.least(2));",
+                  "  pm.test(\"strict rotation (no instance twice in a row)\", () => ids.slice(1).forEach((id, i) => pm.expect(id).to.not.eql(ids[i])));",
+                  "  pm.collectionVariables.set(\"rr_game\", \"[]\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gateway sees every instance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/health/services",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "health",
+                "services"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "[\"game\", \"exam\", \"world\", \"zombie\", \"resource\", \"base\", \"crafting\", \"player\"].forEach(p => pm.test(p + \" up\", () => pm.expect(b.services[p]).to.eql(\"up\")));",
+                  "pm.test(\"per-instance view\", () => pm.expect(Object.keys(b.instances.game)).to.have.lengthOf(3));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Logs: one request id across services (Grade 2)",
+      "description": "",
+      "item": [
+        {
+          "name": "X-Request-Id is kept and returned",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "lab3-demo-1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/courses",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ]
+            },
+            "description": "Then: docker compose -f deploy/docker-compose.yml logs | grep lab3-demo-1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"same X-Request-Id back\", () => pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.eql(\"lab3-demo-1\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "X-Request-Id is generated",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/world/rooms",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"uuid\", () => pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.match(/^[0-9a-f-]{36}$/));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Game on several instances: owner + WebSocket (Grade 5)",
+      "description": "",
+      "item": [
+        {
+          "name": "Create session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lab 3 demo\",\n  \"maxPlayers\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.collectionVariables.set(\"sessionId\", s.sessionId);",
+                  "pm.test(\"owner = the instance that created it\", () => pm.expect(s.ownerInstance).to.eql(pm.response.headers.get(\"X-Instance-Id\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Join session (any instance)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{sessionId}}/join",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}",
+                "join"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get session: ownerInstance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/game/sessions/{{sessionId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "game",
+                "sessions",
+                "{{sessionId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.collectionVariables.set(\"ownerInstance\", s.ownerInstance);",
+                  "pm.test(\"active, with an owner\", () => { pm.expect(s.status).to.eql(\"active\"); pm.expect(s.ownerInstance).to.match(/^game-[1-3]$/); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Negotiate WebSocket on the owner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/ws/negotiate",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "ws",
+                "negotiate"
+              ]
+            },
+            "description": "Open the returned wsUrl in a Postman WebSocket tab. It goes straight to the owner instance; events caused on other instances still arrive (PostgreSQL LISTEN/NOTIFY relay).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set(\"wsUrl\", b.wsUrl);",
+                  "const owner = pm.collectionVariables.get(\"ownerInstance\");",
+                  "pm.test(\"instanceId = ownerInstance (\" + owner + \")\", () => pm.expect(b.instanceId).to.eql(owner));",
+                  "pm.test(\"wsUrl = owner port\", () => pm.expect(b.wsUrl).to.match(new RegExp(\"^ws://localhost:310\" + owner.slice(-1) + \"/ws\\\\?\")));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Circuit breaker removes a failing instance (Grades 6, 9; needs DEMO_MODE=true)",
+      "description": "",
+      "item": [
+        {
+          "name": "Make ONE Exam instance fail",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/debug/fail?enabled=true",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "debug",
+                "fail"
+              ],
+              "query": [
+                {
+                  "key": "enabled",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Round-robin sends this to one Exam instance; from now on it answers 500 to everything except /health and /status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.collectionVariables.set(\"failingInstance\", id);",
+                  "console.log(\"failing instance:\", id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Call Exam until the breaker trips",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/exam/courses",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ]
+            },
+            "description": "Repeats up to 10 times. Half of the calls hit the failing instance (500); after 3 failures inside 3.5 x REQUEST_TIMEOUT_MS the gateway's breaker removes it from the pool and from Service Discovery, and every following call is 200. Logs: 'circuit breaker tripped', 'instance removed by circuit breaker'."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Number(pm.collectionVariables.get(\"cb_count\")) + 1;",
+                  "pm.collectionVariables.set(\"cb_count\", String(n));",
+                  "const ids = JSON.parse(pm.collectionVariables.get(\"cb_ids\") || \"[]\");",
+                  "ids.push(pm.response.code + \"@\" + pm.response.headers.get(\"X-Instance-Id\"));",
+                  "pm.collectionVariables.set(\"cb_ids\", JSON.stringify(ids));",
+                  "if (n < 10) { postman.setNextRequest(pm.info.requestName); } else {",
+                  "  console.log(ids.join(\"  \"));",
+                  "  pm.test(\"the last 4 calls all succeed (failing instance removed)\", () => ids.slice(-4).forEach(x => pm.expect(x).to.match(/^200@/)));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Service Discovery: failing instance is gone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/services/exam-service",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "services",
+                "exam-service"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().instances.map(i => i.instanceId);",
+                  "const bad = pm.collectionVariables.get(\"failingInstance\");",
+                  "pm.test(bad + \" removed\", () => pm.expect(ids).to.not.include(bad));",
+                  "pm.test(\"the healthy instance stays\", () => pm.expect(ids.length).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quarantine: it cannot register again for 60 s",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/quarantine",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "quarantine"
+              ]
+            },
+            "description": "After the demo: docker compose -f deploy/docker-compose.yml restart exam-service (the failing switch lives in memory).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const bad = pm.collectionVariables.get(\"failingInstance\");",
+                  "pm.test(bad + \" quarantined\", () => pm.expect(pm.response.json().instances.map(i => i.instanceId)).to.include(bad));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Health checks and alerts (Grades 7, 8)",
+      "description": "",
+      "item": [
+        {
+          "name": "Send a test alert to Telegram / Discord",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/alerts/test",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "test"
+              ]
+            },
+            "description": "The message arrives in the team Telegram group / Discord channel.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"sent to a channel\", () => pm.expect(pm.response.json().sent.length).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Recent alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/alerts/recent",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "recent"
+              ]
+            },
+            "description": "Alerts raised by the health checks (load, DOWN, not responding, recovered).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
