@@ -6,17 +6,93 @@
 # Lab 2: the gateway is the single entry point.
 #   clients:   http://localhost:8080/<service>/...   (Bearer token, see the README)
 #   services:  http://gateway:8081/<service>/...     (internal listener, never published)
-# Only the gateway (8080) and Game (3001, for the direct WebSocket after POST /ws/negotiate)
-# publish a port; every other service is reachable through the gateway only.
+# Only the gateway (8080), the Game instances (3101-3103, for the direct WebSocket after
+# POST /ws/negotiate) and Service Discovery (8500, for the demo) publish a port; every other
+# service is reachable through the gateway only.
+#
+# Lab 3: every service except Game runs ${<NAME>_REPLICAS:-2} replicas (no container_name, no
+# host port); the replicas of a service share its database.
 #
 # Every service owns its database (and a named volume for it). All 8 services run their real images.
+#
+# Lab 3: every service and the gateway register in Service Discovery (docs/lab3-contract.md),
+# send heartbeats and are found there by the gateway.
+
+# Merged into every service's environment (<<: *discovery-env).
+x-discovery-env: &discovery-env
+  SERVICE_DISCOVERY_URL: http://service-discovery:8500
+  HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-5000}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  CIRCUIT_BREAKER_MODE: ${CIRCUIT_BREAKER_MODE:-remove}
+
+# Game runs as three explicit services (game-service-1/2/3) built from this anchor, because each
+# instance needs its own host port for the direct WebSocket. A service that redefines
+# environment: replaces the whole map, so each instance merges *game-env and *discovery-env.
+x-game: &game
+  image: alexandrubujor1/game-service:${GAME_VERSION:-3.0.0}
+  restart: unless-stopped
+  env_file: .env
+  environment: &game-env
+    PORT: "3001"
+    STORAGE: postgres
+    DB_HOST: game-db
+    DB_USER: ${GAME_DB_USER}
+    DB_PASSWORD: ${GAME_DB_PASSWORD}
+    DB_NAME: ${GAME_DB_NAME}
+    SEED_ON_START: "true"
+    # Lab 2: every call to another service goes through the gateway
+    EXAM_SERVICE_URL: http://gateway:8081/exam
+    WORLD_SERVICE_URL: http://gateway:8081/world
+    ZOMBIE_SERVICE_URL: http://gateway:8081/zombie
+    RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
+    PLAYER_SERVICE_URL: http://gateway:8081/player
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
+    REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
+    MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
+    DEMO_MODE: ${DEMO_MODE:-false}
+  depends_on:
+    service-discovery:
+      condition: service_healthy
+    game-db:
+      condition: service_healthy
 
 services:
-  # ======================= API Gateway (Lab 2) =======================
-  gateway:
-    image: alexandrubujor1/gateway:${GATEWAY_VERSION:-2.0.0}
+  # ======================= Service Discovery (Lab 3) =======================
+  service-discovery:
+    image: mihaim888/service-discovery:${SD_VERSION:-3.0.0}
     restart: unless-stopped
     environment:
+      PORT: "8500"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEARTBEAT_TTL_SECONDS: ${HEARTBEAT_TTL_SECONDS:-15}
+      # Health checks and alerts (Grades 7-9)
+      HEALTH_CHECK_INTERVAL_SECONDS: ${HEALTH_CHECK_INTERVAL_SECONDS:-10}
+      HEALTH_CHECK_FAILURES_BEFORE_DOWN: ${HEALTH_CHECK_FAILURES_BEFORE_DOWN:-2}
+      LOAD_WARN_THRESHOLD: ${LOAD_WARN_THRESHOLD:-0.7}
+      LOAD_CRITICAL_THRESHOLD: ${LOAD_CRITICAL_THRESHOLD:-0.9}
+      ALERT_COOLDOWN_SECONDS: ${ALERT_COOLDOWN_SECONDS:-60}
+      QUARANTINE_SECONDS: ${QUARANTINE_SECONDS:-60}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "8500:8500"   # only to show the registry in the demo
+
+  # ======================= API Gateway (Lab 2) =======================
+  gateway:
+    image: alexandrubujor1/gateway:${GATEWAY_VERSION:-3.0.0}
+    restart: unless-stopped
+    environment:
+      <<: *discovery-env
+      SERVICE_NAME: gateway
+      INSTANCE_ID: gateway-1
+      DISCOVERY_CACHE_MS: ${DISCOVERY_CACHE_MS:-2000}
       PORT: "8080"
       INTERNAL_PORT: "8081"          # service-to-service listener, Docker network only
       JWT_SECRET: ${JWT_SECRET}
@@ -24,7 +100,7 @@ services:
       PLAYER_JWT_SECRET: ${PLAYER_JWT_SECRET}   # accept Player Service login tokens
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
-      GAME_WS_PUBLIC_URL: ws://localhost:3001/ws
+      GAME_WS_PUBLIC_URL: ws://localhost:3101/ws   # fallback only: negotiate returns the owner instance's URL
       REQUEST_TIMEOUT_MS: ${GATEWAY_REQUEST_TIMEOUT_MS:-10000}
       MAX_CONCURRENT_REQUESTS: ${GATEWAY_MAX_CONCURRENT_REQUESTS:-100}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -38,46 +114,67 @@ services:
       ROUTE_CRAFTING: http://crafting-service:3031
       ROUTE_PLAYER: http://player-service:3032
     depends_on:
-      - game-service
-      - exam-service
-      - world-service
-      - zombie-service
-      - resource-service
-      - base-service
-      - crafting-service
-      - player-service
+      service-discovery:
+        condition: service_healthy
+      game-service-1:
+        condition: service_started
+      game-service-2:
+        condition: service_started
+      game-service-3:
+        condition: service_started
+      exam-service:
+        condition: service_started
+      world-service:
+        condition: service_started
+      zombie-service:
+        condition: service_started
+      resource-service:
+        condition: service_started
+      base-service:
+        condition: service_started
+      crafting-service:
+        condition: service_started
+      player-service:
+        condition: service_started
     ports:
       - "8080:8080"                  # 8081 is deliberately NOT published
 
-  # ======================= Game Service (Alexandru) =======================
-  game-service:
-    image: alexandrubujor1/game-service:${GAME_VERSION:-2.0.0}
-    restart: unless-stopped
-    env_file: .env
+  # ======================= Game Service (Alexandru): 3 instances =======================
+  game-service-1:
+    <<: *game
     environment:
-      PORT: "3001"
-      STORAGE: postgres
-      DB_HOST: game-db
-      DB_USER: ${GAME_DB_USER}
-      DB_PASSWORD: ${GAME_DB_PASSWORD}
-      DB_NAME: ${GAME_DB_NAME}
-      SEED_ON_START: "true"
-      # Lab 2: every call to another service goes through the gateway
-      EXAM_SERVICE_URL: http://gateway:8081/exam
-      WORLD_SERVICE_URL: http://gateway:8081/world
-      ZOMBIE_SERVICE_URL: http://gateway:8081/zombie
-      RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
-      PLAYER_SERVICE_URL: http://gateway:8081/player
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
-      REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
-      MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
-      DEMO_MODE: ${DEMO_MODE:-false}
-    depends_on:
-      game-db:
-        condition: service_healthy
+      <<: [*game-env, *discovery-env]
+      INSTANCE_ID: game-1
+      WS_PUBLIC_URL: ws://localhost:3101/ws
     ports:
-      - "3001:3001"   # only for the direct WebSocket (ws://localhost:3001/ws?...&token=...)
+      - "3101:3001"   # only for this instance's direct WebSocket
+    networks:
+      default:
+        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
+
+  game-service-2:
+    <<: *game
+    environment:
+      <<: [*game-env, *discovery-env]
+      INSTANCE_ID: game-2
+      WS_PUBLIC_URL: ws://localhost:3102/ws
+    ports:
+      - "3102:3001"   # only for this instance's direct WebSocket
+    networks:
+      default:
+        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
+
+  game-service-3:
+    <<: *game
+    environment:
+      <<: [*game-env, *discovery-env]
+      INSTANCE_ID: game-3
+      WS_PUBLIC_URL: ws://localhost:3103/ws
+    ports:
+      - "3103:3001"   # only for this instance's direct WebSocket
+    networks:
+      default:
+        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
 
   game-db:
     image: postgres:16-alpine
@@ -98,10 +195,13 @@ services:
 
   # ======================= Exam Service (Alexandru) =======================
   exam-service:
-    image: alexandrubujor1/exam-service:${EXAM_VERSION:-2.0.0}
+    image: alexandrubujor1/exam-service:${EXAM_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${EXAM_REPLICAS:-2}
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3002"
       STORAGE: postgres
       DB_HOST: exam-db
@@ -117,6 +217,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       exam-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /exam
@@ -140,10 +242,13 @@ services:
 
   # ======================= World Service (Mihai) =======================
   world-service:
-    image: mihaim888/world-service:${WORLD_VERSION:-2.0.0}
+    image: mihaim888/world-service:${WORLD_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${WORLD_REPLICAS:-2}
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3011"
       STORAGE: mongo
       MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
@@ -156,7 +261,10 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
-      - world-mongo
+      service-discovery:
+        condition: service_healthy
+      world-mongo:
+        condition: service_started
     # no published port: reach it through the gateway at /world
 
   world-mongo:
@@ -172,10 +280,13 @@ services:
 
   # ======================= Zombie Service (Mihai) =======================
   zombie-service:
-    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-2.0.0}
+    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${ZOMBIE_REPLICAS:-2}
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3012"
       STORAGE: mongo
       MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
@@ -185,7 +296,10 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
-      - zombie-mongo
+      service-discovery:
+        condition: service_healthy
+      zombie-mongo:
+        condition: service_started
     # no published port: reach it through the gateway at /zombie
 
   zombie-mongo:
@@ -201,9 +315,12 @@ services:
 
   # ======================= Resource Service (Vladlen) =======================
   resource-service:
-    image: mituvladlen/resource-service:${RESOURCE_VERSION:-2.0.0}
+    image: mituvladlen/resource-service:${RESOURCE_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${RESOURCE_REPLICAS:-2}
     environment:
+      <<: *discovery-env
       PORT: "3001"                 # inside the container; published on 3005
       STORAGE: postgres
       DATABASE_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:5432/${RESOURCE_DB_NAME}
@@ -219,6 +336,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       resource-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /resource
@@ -239,9 +358,12 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: alexandrubujor1/base-service:${BASE_VERSION:-2.0.0}   # published by base-service CI (repo secrets)
+    image: alexandrubujor1/base-service:${BASE_VERSION:-3.0.0}   # published by base-service CI (repo secrets)
     restart: unless-stopped
+    deploy:
+      replicas: ${BASE_REPLICAS:-2}
     environment:
+      <<: *discovery-env
       PORT: "3002"
       STORAGE: postgres
       DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
@@ -256,6 +378,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       base-db:
         condition: service_healthy
       resource-service:
@@ -278,9 +402,12 @@ services:
 
   # ======================= Player Service (Gabriel) =======================
   player-service:
-    image: gabriel120405/player-service:${PLAYER_VERSION:-2.0.0}
+    image: gabriel120405/player-service:${PLAYER_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${PLAYER_REPLICAS:-2}
     environment:
+      <<: *discovery-env
       PORT: "3032"
       STORAGE: postgres
       DATABASE_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:5432/${PLAYER_DB_NAME}
@@ -291,6 +418,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       player-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /player
@@ -314,9 +443,12 @@ services:
 
   # ======================= Crafting Service (Gabriel) =======================
   crafting-service:
-    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-2.0.0}
+    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-3.0.0}
     restart: unless-stopped
+    deploy:
+      replicas: ${CRAFTING_REPLICAS:-2}
     environment:
+      <<: *discovery-env
       PORT: "3031"
       STORAGE: postgres
       DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
@@ -335,6 +467,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       crafting-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /crafting

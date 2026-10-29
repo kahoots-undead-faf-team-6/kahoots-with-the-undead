@@ -914,7 +914,7 @@ Track lab tasks on the linked [GitHub Project](#).
 | Service | Reached at | Database | Seed data |
 |---|---|---|---|
 | **API Gateway** | **`localhost:8080`** (clients), `gateway:8081` (services, not published) | none | – |
-| Game Service | `localhost:8080/game`; `localhost:3001` only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
+| Game Service | `localhost:8080/game`; `localhost:3101`–`3103` (one per instance) only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
 | Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
 | World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
 | Zombie Service | `localhost:8080/zombie` | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
@@ -922,6 +922,7 @@ Track lab tasks on the linked [GitHub Project](#).
 | Base Service | `localhost:8080/base` | PostgreSQL 16 (`base-db`) | `db-scripts/base-service/` |
 | Crafting Service | `localhost:8080/crafting` | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
 | Player Service | `localhost:8080/player` | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
+| Service Discovery (Lab 3) | `localhost:8500` (published only to show the registry) | none, in memory | – |
 
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
@@ -967,6 +968,37 @@ Every `*_SERVICE_URL` already points at the gateway, so switching a mock to `htt
 Each PostgreSQL database is created and seeded automatically on the first start. To reseed by hand: `./db-scripts/seed.sh <game-service|exam-service|resource-service|base-service|player-service|crafting-service>`.
 
 World and Zombie use MongoDB and seed themselves on the first start (`SEED_ON_START=true`, only when the database is empty), so Game finds rooms and zombie types right away. To reseed by hand, the same data is in `db-scripts/`: `cd db-scripts/world-service && npm install && MONGO_URI=mongodb://<user>:<password>@localhost:27011/world?authSource=admin MONGO_DB=world node seed.js`, same for `zombie-service` on port 27012.
+
+### Lab 3: several instances behind Service Discovery
+
+Every service runs **2 replicas** (`<NAME>_REPLICAS` in `deploy/.env`), and Game runs three named instances, `game-service-1`/`-2`/`-3`, each with its own WebSocket port (3101–3103). Every instance registers in **Service Discovery** on startup and sends a heartbeat every 5 s. The gateway asks Service Discovery for the live instances and spreads the requests over them with round-robin. The replicas of a service share its one database. Rules: [`docs/lab3-contract.md`](./docs/lab3-contract.md).
+
+```bash
+dc() { docker compose -f deploy/docker-compose.yml --env-file deploy/.env "$@"; }   # bash and zsh
+dc up -d
+dc ps                                        # 2 replicas per service, game-service-1..3, service-discovery
+
+# the registry: every instance, with its address, status and load
+curl -s localhost:8500/services
+curl -s localhost:8500/services/world-service
+curl -s localhost:8500/status                # Service Discovery's own status and registry size
+
+# round-robin: every response names the instance that answered
+for i in $(seq 6); do curl -s -o /dev/null -D - localhost:8080/world/rooms -H "Authorization: Bearer $TOKEN" | grep -i x-instance-id; done
+
+# scale up: the new instance is in Service Discovery and in the gateway rotation within 5 s
+dc up -d --scale world-service=3
+curl -s localhost:8500/services/world-service
+
+# stop one replica: it deregisters on SIGTERM and leaves the gateway rotation within 2 s (DISCOVERY_CACHE_MS)
+docker stop deploy-world-service-3
+
+# follow the JSON logs (registrations, heartbeats at DEBUG, round-robin, circuit breaker)
+dc logs -f gateway service-discovery
+dc logs -f world-service | grep '"level":"ERROR"'
+```
+
+A replica that is killed without SIGTERM (`docker kill`) is removed after `HEARTBEAT_TTL_SECONDS` (15 s) without heartbeats. For the demo, uncomment the Lab 3 demo block in `deploy/.env`: low limits, health checks every 3 s, and a 20 s circuit breaker window (read by Game, Exam, World and Zombie, which load `deploy/.env`).
  
 ## 11. Changelog
  
