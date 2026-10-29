@@ -37,41 +37,61 @@ a distinct slice of state and behavior.
 
 From Lab 2 the **API Gateway** is the single entry point. Clients and services send every REST request to it; it validates the caller (JWT for clients, `X-Internal-Key` for services), applies its limits and forwards the request without the credentials. The only traffic that bypasses it is the live WebSocket to Game, which the gateway negotiates and the client then opens directly.
 
+From Lab 3 every service runs as **2–3 replicas** behind **Service Discovery**. Each instance registers itself and sends heartbeats. The gateway asks Service Discovery for the live instances of a service and spreads the requests over them round-robin. Circuit breakers in the gateway and in the services remove a failing instance from Service Discovery. The rules are in [`docs/lab3-contract.md`](./docs/lab3-contract.md).
+
 ```mermaid
 graph TD
     Client([Client / Postman])
-    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · timeout · concurrency limit}}
+    Gateway{{API Gateway<br/>Python · FastAPI · :8080<br/>JWT auth · limits · round-robin · circuit breaker}}
+    SD[(Service Discovery<br/>Python · FastAPI · :8500<br/>registry · health checks · quarantine)]
+    Alerts[/Telegram · Discord/]
 
     subgraph Services
-        Player[Player Service]
-        Game[Game Service]
-        Exam[Exam Service]
-        World[World Service]
-        Zombie[Zombie Service]
-        Resource[Resource Service]
-        Base[Base Service]
-        Crafting[Crafting Service]
+        Player[Player Service ×2]
+        subgraph GameCluster["Game Service ×2"]
+            Game1[game-service-1]
+            Game2[game-service-2]
+            GameDB[(Game PostgreSQL<br/>LISTEN / NOTIFY)]
+        end
+        Exam[Exam Service ×2]
+        World[World Service ×2]
+        Zombie[Zombie Service ×2]
+        Resource[Resource Service ×2]
+        Base[Base Service ×2]
+        Crafting[Crafting Service ×2]
     end
 
     Client -->|REST + Bearer JWT| Gateway
     Client -->|1. POST /ws/negotiate| Gateway
-    Client -.->|2. WebSocket, direct, signed token| Game
+    Client -.->|2. WebSocket, direct, to the session's owner instance| Game1
 
-    Gateway -->|/game| Game
-    Gateway -->|/exam| Exam
-    Gateway -->|/world| World
-    Gateway -->|/zombie| Zombie
-    Gateway -->|/resource| Resource
-    Gateway -->|/base| Base
-    Gateway -->|/crafting| Crafting
-    Gateway -->|/player| Player
+    Gateway -->|GET /services/name, cached 2 s| SD
+    Gateway -->|round-robin /game| Game1
+    Gateway -->|round-robin /game| Game2
+    Gateway -->|round-robin /exam, /world, /zombie, /resource, /base, /crafting, /player| Services
 
-    Game ==>|via gateway: exam on Professor Zombie, rooms, zombie config, resources, XP| Gateway
-    Exam ==>|via gateway: ExamPassed, rewards| Gateway
-    Crafting ==>|via gateway: materials, item transfer| Gateway
-    Resource ==>|via gateway: player / world checks| Gateway
-    Base ==>|via gateway: consume resources, geography| Gateway
+    Game1 <-->|event relay| GameDB
+    Game2 <-->|event relay| GameDB
+
+    Services ==>|calls to other services, via gateway :8081| Gateway
+
+    Services -->|register · heartbeat every 5 s| SD
+    Gateway -->|register · heartbeat| SD
+    SD -->|polls GET /status every 10 s| Services
+    SD -->|WARN / CRITICAL alerts| Alerts
+
+    Gateway -.->|circuit breaker: DELETE instance| SD
+    Services -.->|circuit breaker: DELETE instance| SD
 ```
+
+**Legend**
+- **Solid arrow `-->`**: a REST call. All client and service-to-service traffic goes through the gateway: port **8080** for clients, **8081** inside the Docker network.
+- **Thick arrow `==>`**: a service calling another service, through the gateway.
+- **Dotted arrow from Client**: the only traffic that bypasses the gateway. After `POST /ws/negotiate`, the client opens the WebSocket directly on the Game instance that owns its session (`game-service-N`).
+- **Dotted arrows to Service Discovery**: circuit-breaker removal. After 3 failures of one instance in 3.5 × the timeout, the caller sends `DELETE /instances/{id}?reason=circuit-breaker`. Service Discovery quarantines that instance, and the healthy replicas keep serving.
+- **Game PostgreSQL `LISTEN/NOTIFY`**: relays game events between Game instances, so a player connected to any instance gets them.
+- **Service Discovery** polls every instance's `GET /status`, marks an instance `DOWN` after failed checks, and sends `WARN`/`CRITICAL` alerts to Telegram and Discord.
+- **`×2`**: the replicas from `deploy.replicas` in `deploy/docker-compose.yml`. Each one has its own `instanceId`, and the replicas of one service share their database.
 
 Logical dependencies between the services (every arrow below is now a call **through the gateway**, e.g. Game calls `http://gateway:8081/exam/exams`):
 
