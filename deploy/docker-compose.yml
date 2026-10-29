@@ -358,7 +358,7 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: alexandrubujor1/base-service:${BASE_VERSION:-3.0.0}   # published by base-service CI (repo secrets)
+    image: mituvladlen/base-service:${BASE_VERSION:-3.0.0}   # published by base-service CI (Vladlen's DockerHub secrets)
     restart: unless-stopped
     deploy:
       replicas: ${BASE_REPLICAS:-2}
