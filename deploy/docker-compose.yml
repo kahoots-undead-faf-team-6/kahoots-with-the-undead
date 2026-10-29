@@ -10,13 +10,53 @@
 # publish a port; every other service is reachable through the gateway only.
 #
 # Every service owns its database (and a named volume for it). All 8 services run their real images.
+#
+# Lab 3: every service and the gateway register in Service Discovery (docs/lab3-contract.md),
+# send heartbeats and are found there by the gateway.
+
+# Merged into every service's environment (<<: *discovery-env).
+x-discovery-env: &discovery-env
+  SERVICE_DISCOVERY_URL: http://service-discovery:8500
+  HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-5000}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  CIRCUIT_BREAKER_MODE: ${CIRCUIT_BREAKER_MODE:-remove}
 
 services:
+  # ======================= Service Discovery (Lab 3) =======================
+  service-discovery:
+    image: mihaim888/service-discovery:${SD_VERSION:-3.0.0}
+    restart: unless-stopped
+    environment:
+      PORT: "8500"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEARTBEAT_TTL_SECONDS: ${HEARTBEAT_TTL_SECONDS:-15}
+      # Health checks and alerts (Grades 7-9)
+      HEALTH_CHECK_INTERVAL_SECONDS: ${HEALTH_CHECK_INTERVAL_SECONDS:-10}
+      HEALTH_CHECK_FAILURES_BEFORE_DOWN: ${HEALTH_CHECK_FAILURES_BEFORE_DOWN:-2}
+      LOAD_WARN_THRESHOLD: ${LOAD_WARN_THRESHOLD:-0.7}
+      LOAD_CRITICAL_THRESHOLD: ${LOAD_CRITICAL_THRESHOLD:-0.9}
+      ALERT_COOLDOWN_SECONDS: ${ALERT_COOLDOWN_SECONDS:-60}
+      QUARANTINE_SECONDS: ${QUARANTINE_SECONDS:-60}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "8500:8500"   # only to show the registry in the demo
+
   # ======================= API Gateway (Lab 2) =======================
   gateway:
     image: alexandrubujor1/gateway:${GATEWAY_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
+      <<: *discovery-env
+      SERVICE_NAME: gateway
+      INSTANCE_ID: gateway-1
+      DISCOVERY_CACHE_MS: ${DISCOVERY_CACHE_MS:-2000}
       PORT: "8080"
       INTERNAL_PORT: "8081"          # service-to-service listener, Docker network only
       JWT_SECRET: ${JWT_SECRET}
@@ -38,14 +78,24 @@ services:
       ROUTE_CRAFTING: http://crafting-service:3031
       ROUTE_PLAYER: http://player-service:3032
     depends_on:
-      - game-service
-      - exam-service
-      - world-service
-      - zombie-service
-      - resource-service
-      - base-service
-      - crafting-service
-      - player-service
+      service-discovery:
+        condition: service_healthy
+      game-service:
+        condition: service_started
+      exam-service:
+        condition: service_started
+      world-service:
+        condition: service_started
+      zombie-service:
+        condition: service_started
+      resource-service:
+        condition: service_started
+      base-service:
+        condition: service_started
+      crafting-service:
+        condition: service_started
+      player-service:
+        condition: service_started
     ports:
       - "8080:8080"                  # 8081 is deliberately NOT published
 
@@ -55,6 +105,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3001"
       STORAGE: postgres
       DB_HOST: game-db
@@ -74,6 +125,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       game-db:
         condition: service_healthy
     ports:
@@ -102,6 +155,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3002"
       STORAGE: postgres
       DB_HOST: exam-db
@@ -117,6 +171,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       exam-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /exam
@@ -144,6 +200,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3011"
       STORAGE: mongo
       MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
@@ -156,7 +213,10 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
-      - world-mongo
+      service-discovery:
+        condition: service_healthy
+      world-mongo:
+        condition: service_started
     # no published port: reach it through the gateway at /world
 
   world-mongo:
@@ -176,6 +236,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *discovery-env
       PORT: "3012"
       STORAGE: mongo
       MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
@@ -185,7 +246,10 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
-      - zombie-mongo
+      service-discovery:
+        condition: service_healthy
+      zombie-mongo:
+        condition: service_started
     # no published port: reach it through the gateway at /zombie
 
   zombie-mongo:
@@ -204,6 +268,7 @@ services:
     image: mituvladlen/resource-service:${RESOURCE_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
+      <<: *discovery-env
       PORT: "3001"                 # inside the container; published on 3005
       STORAGE: postgres
       DATABASE_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:5432/${RESOURCE_DB_NAME}
@@ -219,6 +284,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       resource-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /resource
@@ -242,6 +309,7 @@ services:
     image: alexandrubujor1/base-service:${BASE_VERSION:-2.0.0}   # published by base-service CI (repo secrets)
     restart: unless-stopped
     environment:
+      <<: *discovery-env
       PORT: "3002"
       STORAGE: postgres
       DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
@@ -256,6 +324,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       base-db:
         condition: service_healthy
       resource-service:
@@ -281,6 +351,7 @@ services:
     image: gabriel120405/player-service:${PLAYER_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
+      <<: *discovery-env
       PORT: "3032"
       STORAGE: postgres
       DATABASE_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:5432/${PLAYER_DB_NAME}
@@ -291,6 +362,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       player-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /player
@@ -317,6 +390,7 @@ services:
     image: gabriel120405/crafting-service:${CRAFTING_VERSION:-2.0.0}
     restart: unless-stopped
     environment:
+      <<: *discovery-env
       PORT: "3031"
       STORAGE: postgres
       DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
@@ -335,6 +409,8 @@ services:
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
     depends_on:
+      service-discovery:
+        condition: service_healthy
       crafting-db:
         condition: service_healthy
     # no published port: reach it through the gateway at /crafting
