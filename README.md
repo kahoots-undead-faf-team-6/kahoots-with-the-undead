@@ -891,6 +891,14 @@ with `*_CLIENT=http`. Both read `REQUEST_TIMEOUT_MS`, `MAX_CONCURRENT_REQUESTS` 
  
 Postman collections for each service live in [`/postman`](./postman).
  
+- `lab3-scaling.postman_collection.json`: **Lab 3**, 31 requests in 8 folders against `http://localhost:8080` and Service Discovery on `http://localhost:8500`:
+  - the registry (2 replicas per service, `game-1..3` with their WebSocket URLs), and `/status` of every service;
+  - round-robin (6 requests per service, rotation checked from `X-Instance-Id`), and `X-Request-Id` kept and returned;
+  - the Game session owner and the WebSocket negotiated on it;
+  - the circuit breaker removing a failing Exam instance (needs `DEMO_MODE=true`; restart `exam-service` afterwards), and quarantine;
+  - the Telegram/Discord test alert.
+
+  Run it on a freshly started stack: `npx newman run postman/lab3-scaling.postman_collection.json`
 - `lab2-presentation.postman_collection.json`: **Lab 2 presentation**, 67 requests in grade order against `http://localhost:8080` (set `adminKey` from `deploy/.env`, run with `setup-env.sh --demo`)
 - `lab2-gateway.postman_collection.json`: **Lab 2**, everything through the gateway (port 8080): tokens, Game, Exam, Player and Crafting flows, WebSocket negotiation, 401/403/404, 408, 429 (parallel burst) and 504
 - `game-service.postman_collection.json`: Game Service (port 3001)
