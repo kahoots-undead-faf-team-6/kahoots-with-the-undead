@@ -60,7 +60,7 @@ x-game: &game
 services:
   # ======================= Service Discovery (Lab 3) =======================
   service-discovery:
-    image: mihaim888/service-discovery:${SD_VERSION:-3.0.0}
+    image: alexandrubujor1/service-discovery:${SD_VERSION:-3.0.0}
     restart: unless-stopped
     environment:
       PORT: "8500"
