@@ -200,11 +200,17 @@ Routes that only other services call (through `Broker.Call`). The gateway answer
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| game-service | – | none | – |
+
+No other service calls Game: every Game route is a player route. Game reaches the others only by events (`game.session-ended`) and `Broker.Call`.
 
 ### exam-service
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| exam-service | – | none | – |
+
+Other services do call Exam, but only on routes players use too, so the gateway must keep them open: `POST /exams` (game-service, Professor encounter), `GET /players/{playerId}/progress` (world-service and crafting-service, to check a passed course). The old `POST /events/exam-passed` to World and `POST /players/{id}/rewards` to Player are gone: both now come from the `exam.passed` event.
 
 ### world-service
 
