@@ -1,0 +1,8 @@
+# Loads every dashboard JSON from deploy/monitoring/grafana/dashboards (mounted read-only below).
+apiVersion: 1
+providers:
+  - name: kahoots
+    folder: Kahoots
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

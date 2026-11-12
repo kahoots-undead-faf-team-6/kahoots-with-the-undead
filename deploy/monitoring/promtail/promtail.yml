@@ -1,0 +1,37 @@
+# Ships the shared "logs" volume (/var/log/kahoots/<instanceId>.log, one JSON object per line, every
+# service writes it, docs/lab4-contract.md appendix "Writing logs to LOG_DIR") to Loki.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: kahoots
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: kahoots
+          __path__: /var/log/kahoots/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            time: time
+            level: level
+            service: service
+            instanceId: instanceId
+      # service, instanceId and level become Loki labels (few values each). requestId stays a field of the
+      # JSON line, not a label (one value per request would make too many streams): query it with
+      #   {job="kahoots"} | json | requestId="<id>"
+      - labels:
+          level:
+          service:
+          instanceId:
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+          action_on_failure: skip

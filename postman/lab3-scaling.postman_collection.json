@@ -2,7 +2,7 @@
   "info": {
     "name": "Lab 3 - Scaling Up",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Lab 3 checks for the team stack (deploy/docker-compose.yml). Run the folders in order with the Collection Runner or Newman. Variables: gatewayUrl (http://localhost:8080) and sdUrl (http://localhost:8500); the token comes from '0. Setup' and is sent with collection-level Bearer auth. Folder 6 needs DEMO_MODE=true and makes one Exam instance fail on purpose: restart exam-service afterwards. Folder 7 needs the Service Discovery alerts (Gabriel) and a Telegram/Discord channel in deploy/.env."
+    "description": "Lab 3 checks for the team stack (deploy/docker-compose.yml). Run the folders in order with the Collection Runner or Newman. Variables: gatewayUrl (http://localhost:8080) and sdUrl (http://localhost:8500); the token comes from '0. Setup' and is sent with collection-level Bearer auth. Folder 6 needs DEMO_MODE=true and makes one Exam instance fail on purpose: restart exam-service afterwards. Folder 7 needs the Service Discovery alerts (Gabriel) and a Telegram/Discord channel in deploy/.env.\n\nLab 4 (4.0.0): requests go gateway -> Message Broker -> one instance; port 8081 and X-Internal-Key are gone. Routes marked [internal since Lab 4] answer 404 through the gateway (docs/lab4-contract.md §12). The Lab 4 collection is postman/lab4-broker.postman_collection.json."
   },
   "auth": {
     "type": "bearer",
