@@ -394,7 +394,7 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 - Reached only through the gateway at `/base/...` (no published port). `/health` also returns `"version": "2.0.0"`.
 - **Limits:** **408** `REQUEST_TIMEOUT` after `REQUEST_TIMEOUT_MS` (5000), **429** `TOO_MANY_REQUESTS` (+ `Retry-After`) above `MAX_CONCURRENT_REQUESTS` (50). With `DEMO_MODE=true`: `GET /debug/slow?ms=N`.
 - Outgoing calls (Resource `consume`, Player, World) use `http://gateway:8081/<service>` (internal listener), send `X-Internal-Key` and give up after `UPSTREAM_TIMEOUT_MS` (3000) with **504** `UPSTREAM_TIMEOUT`.
-- GitHub Actions test every PR and push `alexandrubujor1/base-service:2.0.0` and `:latest` (amd64 + arm64) on merge to `main`.
+- GitHub Actions test every PR and push `mituvladlen/base-service:<VERSION>` (3.0.0 for Lab 3) and `:latest` (amd64 + arm64) on merge to `main`.
  
 | Method | Path | Request body | Success response |
 |---|---|---|---|
@@ -876,8 +876,8 @@ git submodule update --init --recursive
 | Exam Service | [alexandrubujor1/exam-service:3.0.0](https://hub.docker.com/r/alexandrubujor1/exam-service) | [exam-service](https://github.com/kahoots-undead-faf-team-6/exam-service) (private) |
 | World Service | [mihaim888/world-service:2.0.0](https://hub.docker.com/r/mihaim888/world-service) | [world-service](https://github.com/kahoots-undead-faf-team-6/world-service) (private) |
 | Zombie Service | [mihaim888/zombie-service:2.0.0](https://hub.docker.com/r/mihaim888/zombie-service) | [zombie-service](https://github.com/kahoots-undead-faf-team-6/zombie-service) (private) |
-| Resource Service | [mituvladlen/resource-service:2.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
-| Base Service | [alexandrubujor1/base-service:2.0.0](https://hub.docker.com/r/alexandrubujor1/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
+| Resource Service | [mituvladlen/resource-service:3.0.0](https://hub.docker.com/r/mituvladlen/resource-service) | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
+| Base Service | [mituvladlen/base-service:3.0.0](https://hub.docker.com/r/mituvladlen/base-service) | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | [gabriel120405/crafting-service:2.0.0](https://hub.docker.com/r/gabriel120405/crafting-service) | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
  
 **Run requirements, Player + Crafting (2.0.0):** Docker only. The images are multi-arch (linux/amd64 + linux/arm64), so they run on Intel/AMD and Apple Silicon.
