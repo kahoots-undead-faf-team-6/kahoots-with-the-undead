@@ -1,0 +1,41 @@
+# Override: build Alexandru's services (Message Broker, Game, Exam) from the submodules on this
+# machine; every other service keeps its DockerHub image from docker-compose.yml.
+#
+#   git submodule update --init services/message-broker services/game-service services/exam-service
+#   ./deploy/setup-env.sh
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml --env-file deploy/.env up -d --build
+#
+# Game and Exam use deploy/local/go-proto.Dockerfile, which also runs `make proto` and
+# `go mod tidy`, so only Docker is needed (no Go, no protoc).
+
+x-game-local: &game-local
+  image: kahoots-local/game-service:dev
+  pull_policy: build
+  build:
+    context: ../services/game-service
+    dockerfile: ../../deploy/local/go-proto.Dockerfile
+    args:
+      PORT: "3001"
+
+services:
+  message-broker:
+    image: kahoots-local/message-broker:dev
+    pull_policy: build
+    build:
+      context: ../services/message-broker
+
+  game-service-1:
+    <<: *game-local
+  game-service-2:
+    <<: *game-local
+  game-service-3:
+    <<: *game-local
+
+  exam-service:
+    image: kahoots-local/exam-service:dev
+    pull_policy: build
+    build:
+      context: ../services/exam-service
+      dockerfile: ../../deploy/local/go-proto.Dockerfile
+      args:
+        PORT: "3002"
