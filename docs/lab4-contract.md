@@ -226,11 +226,18 @@ None: every Zombie route is meant for users.
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| resource-service | POST | `/resources/consume` | base-service (upgrades, barricades, facilities, storage, decorations, feeding Kiki), crafting-service (materials) |
+| resource-service | POST | `/resources/grant` | crafting-service, and any service that rewards resources |
+
+Both are idempotent on `actionId`, and the callers send it as `Idempotency-Key` too, so the broker may reroute them. Resource stays open for the routes players use as well: `POST /resources/gather` (game-service calls it for a finished action, but players can gather through the gateway too), `GET /players/{playerId}/resources[/{resourceTypeId}]` (crafting-service reads a stock) and the resource-type routes.
 
 ### base-service
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| base-service | – | none | – |
+
+No other service calls Base: every Base route is a player route. Base reaches the others with `Broker.Call` (Resource `consume`, Player, World) and the `base.upgraded` event, and listens to `player.leveled-up`.
 
 ### crafting-service
 
