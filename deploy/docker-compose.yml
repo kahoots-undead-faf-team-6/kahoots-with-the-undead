@@ -3,12 +3,14 @@
 #   cp deploy/.env.example deploy/.env    # then set the passwords
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 #
-# Lab 2: the gateway is the single entry point.
-#   clients:   http://localhost:8080/<service>/...   (Bearer token, see the README)
-#   services:  http://gateway:8081/<service>/...     (internal listener, never published)
-# Only the gateway (8080), the Game instances (3101-3103, for the direct WebSocket after
-# POST /ws/negotiate) and Service Discovery (8500, for the demo) publish a port; every other
-# service is reachable through the gateway only.
+# Lab 2: the gateway is the single entry point for clients: http://localhost:8080/<service>/...
+# Lab 4: the gateway and every service talk to the services through the Message Broker
+# (gRPC, message-broker:50051, docs/lab4-contract.md). Nothing calls http://gateway:8081 any more.
+#   requests:  Broker.Call    -> the "<name>-service" queue, the broker picks the instance
+#   events:    Broker.Publish -> a topic, delivered to every service that subscribed to it
+# Published ports: the gateway (8080), the Game instances (3101-3103, for the direct WebSocket after
+# POST /ws/negotiate), Service Discovery (8500) and the broker's admin API (8600), the last two for
+# the demo. Every other service is reachable through the gateway only.
 #
 # Lab 3: every service except Game runs ${<NAME>_REPLICAS:-2} replicas (no container_name, no
 # host port); the replicas of a service share its database.
@@ -16,7 +18,11 @@
 # Every service owns its database (and a named volume for it). All 8 services run their real images.
 #
 # Lab 3: every service and the gateway register in Service Discovery (docs/lab3-contract.md),
-# send heartbeats and are found there by the gateway.
+# send heartbeats and are found there by the broker. Lab 4: they also register their gRPC port
+# and the topics they subscribe to.
+#
+# Lab 4: every container writes its logs to the shared volume "logs" (/var/log/kahoots/<instanceId>.log)
+# as well as stdout; the gateway's GET /admin/logs/download and Promtail read them.
 
 # Merged into every service's environment (<<: *discovery-env).
 x-discovery-env: &discovery-env
@@ -24,14 +30,22 @@ x-discovery-env: &discovery-env
   HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-5000}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   CIRCUIT_BREAKER_MODE: ${CIRCUIT_BREAKER_MODE:-remove}
+  # Lab 4
+  BROKER_GRPC_URL: message-broker:50051
+  GRPC_PORT: "50051"
+  LOG_DIR: /var/log/kahoots
+
+# Lab 4: the shared log volume, mounted in every service, the gateway, SD and the broker.
+x-logs-volume: &logs-volume logs:/var/log/kahoots
 
 # Game runs as three explicit services (game-service-1/2/3) built from this anchor, because each
 # instance needs its own host port for the direct WebSocket. A service that redefines
 # environment: replaces the whole map, so each instance merges *game-env and *discovery-env.
 x-game: &game
-  image: alexandrubujor1/game-service:${GAME_VERSION:-3.0.0}
+  image: alexandrubujor1/game-service:${GAME_VERSION:-4.0.0}
   restart: unless-stopped
   env_file: .env
+  volumes: [*logs-volume]
   environment: &game-env
     PORT: "3001"
     STORAGE: postgres
@@ -40,13 +54,8 @@ x-game: &game
     DB_PASSWORD: ${GAME_DB_PASSWORD}
     DB_NAME: ${GAME_DB_NAME}
     SEED_ON_START: "true"
-    # Lab 2: every call to another service goes through the gateway
-    EXAM_SERVICE_URL: http://gateway:8081/exam
-    WORLD_SERVICE_URL: http://gateway:8081/world
-    ZOMBIE_SERVICE_URL: http://gateway:8081/zombie
+    # Lab 4: calls to other services go through the Message Broker (BROKER_GRPC_URL in *discovery-env)
     RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
-    PLAYER_SERVICE_URL: http://gateway:8081/player
-    INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
     REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
     MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
@@ -54,17 +63,31 @@ x-game: &game
   depends_on:
     service-discovery:
       condition: service_healthy
+    message-broker:
+      condition: service_started
     game-db:
       condition: service_healthy
 
 services:
+  # ======================= Shared log volume (Lab 4) =======================
+  # A new named volume belongs to root, and most images run as another user (node, gateway, ...).
+  # This one-shot container makes /var/log/kahoots writable for all of them (sticky bit, like /tmp).
+  # Service Discovery waits for it, and every other container waits for Service Discovery.
+  logs-init:
+    image: busybox:1.36.1
+    command: ["sh", "-c", "chmod 1777 /var/log/kahoots"]
+    volumes: [*logs-volume]
+    restart: "no"
+
   # ======================= Service Discovery (Lab 3) =======================
   service-discovery:
-    image: alexandrubujor1/service-discovery:${SD_VERSION:-3.0.0}
+    image: alexandrubujor1/service-discovery:${SD_VERSION:-4.0.0}
     restart: unless-stopped
+    volumes: [*logs-volume]
     environment:
       PORT: "8500"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
       HEARTBEAT_TTL_SECONDS: ${HEARTBEAT_TTL_SECONDS:-15}
       # Health checks and alerts (Grades 7-9)
       HEALTH_CHECK_INTERVAL_SECONDS: ${HEALTH_CHECK_INTERVAL_SECONDS:-10}
@@ -76,6 +99,9 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    depends_on:
+      logs-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)"]
       interval: 3s
@@ -84,37 +110,71 @@ services:
     ports:
       - "8500:8500"   # only to show the registry in the demo
 
+  # ======================= Message Broker (Lab 4, Alexandru) =======================
+  # Python 3.12: gRPC Broker.Call / Broker.Publish on 50051, admin HTTP on 8600 (/topics, /queues,
+  # /dlq, /status, /metrics). Durable queues and the dead letter channel live in SQLite on broker-data.
+  message-broker:
+    image: alexandrubujor1/message-broker:${BROKER_VERSION:-4.0.0}
+    restart: unless-stopped
+    volumes:
+      - broker-data:/data
+      - *logs-volume
+    environment:
+      SERVICE_DISCOVERY_URL: http://service-discovery:8500
+      SERVICE_NAME: message-broker
+      INSTANCE_ID: message-broker-1
+      HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-5000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
+      PORT: "8600"
+      GRPC_PORT: "50051"
+      BROKER_DB_PATH: /data/broker.db
+      MAX_DELIVERY_ATTEMPTS: ${MAX_DELIVERY_ATTEMPTS:-5}
+      RETRY_BASE_MS: ${RETRY_BASE_MS:-1000}
+      LB_STRATEGY: ${LB_STRATEGY:-least-load}
+      CALL_TIMEOUT_MS: ${CALL_TIMEOUT_MS:-5000}
+      MAX_REROUTES: ${MAX_REROUTES:-2}
+      CIRCUIT_BREAKER_MODE: ${CIRCUIT_BREAKER_MODE:-remove}
+      CIRCUIT_BREAKER_THRESHOLD: ${CIRCUIT_BREAKER_THRESHOLD:-3}
+      CIRCUIT_BREAKER_WINDOW_MS: ${CIRCUIT_BREAKER_WINDOW_MS:-}
+      DISCOVERY_CACHE_MS: ${DISCOVERY_CACHE_MS:-2000}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8600/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      service-discovery:
+        condition: service_healthy
+    ports:
+      - "8600:8600"   # admin API, only for the demo (gRPC 50051 stays inside the Docker network)
+
   # ======================= API Gateway (Lab 2) =======================
   gateway:
-    image: alexandrubujor1/gateway:${GATEWAY_VERSION:-3.0.0}
+    image: alexandrubujor1/gateway:${GATEWAY_VERSION:-4.0.0}
     restart: unless-stopped
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       SERVICE_NAME: gateway
       INSTANCE_ID: gateway-1
       DISCOVERY_CACHE_MS: ${DISCOVERY_CACHE_MS:-2000}
-      PORT: "8080"
-      INTERNAL_PORT: "8081"          # service-to-service listener, Docker network only
+      PORT: "8080"                   # Lab 4: no internal listener any more
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_KEY: ${ADMIN_KEY}
       PLAYER_JWT_SECRET: ${PLAYER_JWT_SECRET}   # accept Player Service login tokens
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
       GAME_WS_PUBLIC_URL: ws://localhost:3101/ws   # fallback only: negotiate returns the owner instance's URL
       REQUEST_TIMEOUT_MS: ${GATEWAY_REQUEST_TIMEOUT_MS:-10000}
       MAX_CONCURRENT_REQUESTS: ${GATEWAY_MAX_CONCURRENT_REQUESTS:-100}
       DEMO_MODE: ${DEMO_MODE:-false}
-      # Routes (/<name>/... -> service). These match the gateway defaults; listed for clarity.
-      ROUTE_GAME: http://game-service:3001
-      ROUTE_EXAM: http://exam-service:3002
-      ROUTE_WORLD: http://world-service:3011
-      ROUTE_ZOMBIE: http://zombie-service:3012
-      ROUTE_RESOURCE: http://resource-service:3001
-      ROUTE_BASE: http://base-service:3002
-      ROUTE_CRAFTING: http://crafting-service:3031
-      ROUTE_PLAYER: http://player-service:3032
+      # Lab 4: /<name>/... -> Broker.Call to the "<name>-service" queue. Internal routes answer 404
+      # (docs/lab4-contract.md section 12); BLOCKED_ROUTES adds more.
+      BLOCKED_ROUTES: ${BLOCKED_ROUTES:-}
     depends_on:
       service-discovery:
+        condition: service_healthy
+      message-broker:
         condition: service_healthy
       game-service-1:
         condition: service_started
@@ -137,7 +197,7 @@ services:
       player-service:
         condition: service_started
     ports:
-      - "8080:8080"                  # 8081 is deliberately NOT published
+      - "8080:8080"
 
   # ======================= Game Service (Alexandru): 3 instances =======================
   game-service-1:
@@ -150,7 +210,7 @@ services:
       - "3101:3001"   # only for this instance's direct WebSocket
     networks:
       default:
-        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
+        aliases: [game-service]
 
   game-service-2:
     <<: *game
@@ -162,7 +222,7 @@ services:
       - "3102:3001"   # only for this instance's direct WebSocket
     networks:
       default:
-        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
+        aliases: [game-service]
 
   game-service-3:
     <<: *game
@@ -174,7 +234,7 @@ services:
       - "3103:3001"   # only for this instance's direct WebSocket
     networks:
       default:
-        aliases: [game-service]   # keeps http://game-service:3001 working as the gateway fallback
+        aliases: [game-service]
 
   game-db:
     image: postgres:16-alpine
@@ -195,11 +255,12 @@ services:
 
   # ======================= Exam Service (Alexandru) =======================
   exam-service:
-    image: alexandrubujor1/exam-service:${EXAM_VERSION:-3.0.0}
+    image: alexandrubujor1/exam-service:${EXAM_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${EXAM_REPLICAS:-2}
     env_file: .env
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3002"
@@ -209,10 +270,7 @@ services:
       DB_PASSWORD: ${EXAM_DB_PASSWORD}
       DB_NAME: ${EXAM_DB_NAME}
       SEED_ON_START: "true"
-      # Lab 2: every call to another service goes through the gateway
-      WORLD_SERVICE_URL: http://gateway:8081/world     # ExamPassed -> unlock wing
-      PLAYER_SERVICE_URL: http://gateway:8081/player
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Lab 4: ExamPassed is the exam.passed event (Broker.Publish), no more HTTP notifications
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -242,11 +300,12 @@ services:
 
   # ======================= World Service (Mihai) =======================
   world-service:
-    image: mihaim888/world-service:${WORLD_VERSION:-3.0.0}
+    image: mihaim888/world-service:${WORLD_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${WORLD_REPLICAS:-2}
     env_file: .env
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3011"
@@ -254,9 +313,7 @@ services:
       MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
       MONGO_DB: world
       SEED_ON_START: "true"
-      # Lab 2: ExamPassed is verified with Exam through the gateway
-      EXAM_SERVICE_URL: http://gateway:8081/exam
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Lab 4: subscribes to exam.passed and resource.depleted, publishes world.wing-unlocked
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -280,11 +337,12 @@ services:
 
   # ======================= Zombie Service (Mihai) =======================
   zombie-service:
-    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-3.0.0}
+    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${ZOMBIE_REPLICAS:-2}
     env_file: .env
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3012"
@@ -292,6 +350,7 @@ services:
       MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
       MONGO_DB: zombie
       SEED_ON_START: "true"
+      # Lab 4: publishes zombie.type-changed
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -315,10 +374,11 @@ services:
 
   # ======================= Resource Service (Vladlen) =======================
   resource-service:
-    image: mituvladlen/resource-service:${RESOURCE_VERSION:-3.0.0}
+    image: mituvladlen/resource-service:${RESOURCE_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${RESOURCE_REPLICAS:-2}
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3001"                 # inside the container; published on 3005
@@ -329,9 +389,7 @@ services:
       # The mock knows Base's players (player-1..5) and the seeded Player Service users
       # alice, bob and carol, so Base upgrades and Crafting both work against it.
       MOCK_PLAYERS: player-1,player-2,player-3,player-4,player-5,aaaaaaaa-0000-4000-8000-000000000001,aaaaaaaa-0000-4000-8000-000000000002,aaaaaaaa-0000-4000-8000-000000000003
-      PLAYER_SERVICE_URL: http://gateway:8081/player   # Lab 2: through the gateway when CLIENT_MODE=http
-      WORLD_SERVICE_URL: http://gateway:8081/world
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Lab 4: with CLIENT_MODE=http, Player and World are called through the Message Broker
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -358,22 +416,18 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: mituvladlen/base-service:${BASE_VERSION:-3.0.0}   # published by base-service CI (Vladlen's DockerHub secrets)
+    image: mituvladlen/base-service:${BASE_VERSION:-4.0.0}   # published by base-service CI (Vladlen's DockerHub secrets)
     restart: unless-stopped
     deploy:
       replicas: ${BASE_REPLICAS:-2}
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3002"
       STORAGE: postgres
       DATABASE_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:5432/${BASE_DB_NAME}
       CLIENT_MODE: mock            # Player and World mocked (Base still uses player-1..3)
-      RESOURCE_CLIENT: http        # real call to Resource Service, through the gateway
-      # Lab 2: every call to another service goes through the gateway
-      RESOURCE_SERVICE_URL: http://gateway:8081/resource/resources   # Base posts {URL}/consume -> Resource /resources/consume
-      PLAYER_SERVICE_URL: http://gateway:8081/player
-      WORLD_SERVICE_URL: http://gateway:8081/world
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RESOURCE_CLIENT: http        # real call to Resource Service, through the Message Broker (Lab 4)
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -402,10 +456,11 @@ services:
 
   # ======================= Player Service (Gabriel) =======================
   player-service:
-    image: gabriel120405/player-service:${PLAYER_VERSION:-3.0.0}
+    image: gabriel120405/player-service:${PLAYER_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${PLAYER_REPLICAS:-2}
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3032"
@@ -443,26 +498,22 @@ services:
 
   # ======================= Crafting Service (Gabriel) =======================
   crafting-service:
-    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-3.0.0}
+    image: gabriel120405/crafting-service:${CRAFTING_VERSION:-4.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${CRAFTING_REPLICAS:-2}
+    volumes: [*logs-volume]
     environment:
       <<: *discovery-env
       PORT: "3031"
       STORAGE: postgres
       DATABASE_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:5432/${CRAFTING_DB_NAME}
       SEED_ON_START: "true"
-      # Lab 2: every call goes through the gateway's internal listener (no container names of other services)
+      # Lab 4: every call goes through the Message Broker (BROKER_GRPC_URL in *discovery-env)
       PLAYER_CLIENT: http          # player level + deliver the crafted item
-      PLAYER_SERVICE_URL: http://gateway:8081/player
       RESOURCE_CLIENT: ${CRAFTING_RESOURCE_CLIENT:-http}   # check + consume the materials (all-or-nothing), refund on failure
-      RESOURCE_SERVICE_URL: http://gateway:8081/resource
       EXAM_CLIENT: http            # unlock condition: passed course
-      EXAM_SERVICE_URL: http://gateway:8081/exam
       WORLD_CLIENT: http           # unlock condition: unlocked wing
-      WORLD_SERVICE_URL: http://gateway:8081/world
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY}   # sent as X-Internal-Key (also lets it use the public port)
       REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
       MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -490,7 +541,62 @@ services:
     ports:
       - "127.0.0.1:5441:5432"
 
+  # ======================= Monitoring (Lab 4, Gabriel), profile "monitoring" =======================
+  #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile monitoring up -d
+  # Prometheus finds every instance through SD GET /prometheus/targets; Promtail ships the shared logs
+  # volume to Loki; Grafana shows both. Configs in deploy/monitoring/ (dashboards: Gabriel's PR).
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:3.3.2
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - logs:/var/log/kahoots:ro
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus, loki]
+    ports:
+      - "3000:3000"
+
 volumes:
+  logs:            # Lab 4: shared JSON log files, /var/log/kahoots/<instanceId>.log
+  broker-data:     # Lab 4: the broker's durable queues and dead letter channel (SQLite)
+  prometheus-data:
+  loki-data:
+  grafana-data:
   game-db-data:
   exam-db-data:
   world-mongo-data:

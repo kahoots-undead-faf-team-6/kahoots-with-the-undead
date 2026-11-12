@@ -1,0 +1,20 @@
+# Lab 4 monitoring (docs/lab4-contract.md section 14). Gabriel adds alert rules and dashboards.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Every UP instance registered in Service Discovery (services, gateway, broker), found through
+  # SD's Prometheus http_sd endpoint, so new replicas are scraped without editing this file.
+  - job_name: services
+    http_sd_configs:
+      - url: http://service-discovery:8500/prometheus/targets
+        refresh_interval: 10s
+
+  # Fixed targets, also scraped when SD's endpoint is not there yet.
+  - job_name: message-broker
+    static_configs:
+      - targets: ["message-broker:8600"]
+  - job_name: service-discovery
+    static_configs:
+      - targets: ["service-discovery:8500"]
