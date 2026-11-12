@@ -1,0 +1,255 @@
+{
+  "uid": "kahoots-logs",
+  "title": "Logs",
+  "description": "Every service's JSON logs from the shared logs volume (Promtail → Loki). Put an X-Request-Id in 'requestId' to follow one request across the gateway, the broker and every service.",
+  "tags": [
+    "kahoots",
+    "lab4"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".+",
+        "query": {
+          "label": "service",
+          "stream": "",
+          "type": 1,
+          "refId": "v"
+        },
+        "definition": "label_values(service)"
+      },
+      {
+        "name": "level",
+        "label": "Minimum level",
+        "type": "custom",
+        "query": "DEBUG|INFO|WARN|ERROR : .+,INFO|WARN|ERROR : INFO|WARN|ERROR,WARN|ERROR : WARN|ERROR,ERROR : ERROR",
+        "current": {
+          "text": "INFO|WARN|ERROR",
+          "value": "INFO|WARN|ERROR"
+        },
+        "options": [
+          {
+            "text": "DEBUG|INFO|WARN|ERROR",
+            "value": ".+"
+          },
+          {
+            "text": "INFO|WARN|ERROR",
+            "value": "INFO|WARN|ERROR"
+          },
+          {
+            "text": "WARN|ERROR",
+            "value": "WARN|ERROR"
+          },
+          {
+            "text": "ERROR",
+            "value": "ERROR"
+          }
+        ]
+      },
+      {
+        "name": "requestId",
+        "label": "requestId (X-Request-Id)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "search",
+        "label": "Text",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Log lines / s by level",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (level) (rate({job=\"kahoots\", service=~\"$service\", level=~\"$level\"} |~ \"$search\" [1m]))",
+          "legendFormat": "{{level}}",
+          "queryType": "range",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A"
+        }
+      ],
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log lines / s by service",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate({job=\"kahoots\", service=~\"$service\", level=~\"$level\"} |~ \"$search\" [1m]))",
+          "legendFormat": "{{service}}",
+          "queryType": "range",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A"
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Logs (filtered by service, level, requestId, text)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{job=\"kahoots\", service=~\"$service\", level=~\"$level\"} |~ \"$search\" | json | requestId=~\"${requestId:regex}.*\"",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range"
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 18
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Kahoots dashboards",
+      "type": "dashboards",
+      "tags": [
+        "kahoots"
+      ],
+      "asDropdown": true
+    }
+  ]
+}
