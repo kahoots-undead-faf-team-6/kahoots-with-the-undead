@@ -278,3 +278,47 @@ Query parameters, all optional: `service`, `instance`, `level`, `since`, `until`
 | 10 | Prometheus + Grafana + Loki | Gabriel |
 | – | Lab 4 Postman collection | Gabriel |
 | 8 | Player + Crafting on gRPC and events | Gabriel |
+
+## Appendix: writing logs to `LOG_DIR`
+
+Every service writes each JSON log line to stdout **and**, when `LOG_DIR` is set, appends the same line to `$LOG_DIR/<instanceId>.log` (shared volume `logs` at `/var/log/kahoots`). The gateway's `GET /admin/logs/download` (§13) and Promtail (§14) read that folder. Copy the snippet for your language:
+
+**Node (TypeScript)**: open the file once, append every line.
+
+```ts
+import fs from 'node:fs';
+import path from 'node:path';
+const dir = process.env.LOG_DIR;
+let file: fs.WriteStream | undefined;
+if (dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  file = fs.createWriteStream(path.join(dir, `${instanceId}.log`), { flags: 'a' });
+}
+export const writeLine = (line: string) => { process.stdout.write(line + '\n'); file?.write(line + '\n'); };
+```
+
+**Go**: one writer for both, given to the JSON handler.
+
+```go
+var out io.Writer = os.Stdout
+if dir := os.Getenv("LOG_DIR"); dir != "" {
+    _ = os.MkdirAll(dir, 0o755)
+    if f, err := os.OpenFile(filepath.Join(dir, instanceID+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+        out = io.MultiWriter(os.Stdout, f)
+    }
+}
+logger := slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{Level: level}))
+```
+
+**Python**: a second handler with the same JSON formatter.
+
+```python
+log_dir = os.environ.get("LOG_DIR", "")
+if log_dir:
+    os.makedirs(log_dir, exist_ok=True)
+    to_file = logging.FileHandler(os.path.join(log_dir, f"{instance_id}.log"), encoding="utf-8")
+    to_file.setFormatter(JsonFormatter(service, instance_id))
+    logging.getLogger().addHandler(to_file)
+```
+
+Rules: the file name is the **instanceId** (unique per replica, so replicas never write the same file); one JSON object per line, the same line as stdout; if the folder cannot be written, log one WARN on stdout and keep going without the file.
