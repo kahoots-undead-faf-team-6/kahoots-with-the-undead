@@ -921,7 +921,7 @@ Track lab tasks on the linked [GitHub Project](#).
  
 | Service | Reached at | Database | Seed data |
 |---|---|---|---|
-| **API Gateway** | **`localhost:8080`** (clients), `gateway:8081` (services, not published) | none | – |
+| **API Gateway** | **`localhost:8080`** (clients only; Lab 4 removed the internal `8081` listener) | none | – |
 | Game Service | `localhost:8080/game`; `localhost:3101`–`3103` (one per instance) only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
 | Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
 | World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
@@ -931,6 +931,8 @@ Track lab tasks on the linked [GitHub Project](#).
 | Crafting Service | `localhost:8080/crafting` | PostgreSQL 16 (`crafting-db`, host port 5441) | `db-scripts/crafting-service/` |
 | Player Service | `localhost:8080/player` | PostgreSQL 16 (`player-db`, host port 5442) | `db-scripts/player-service/` |
 | Service Discovery (Lab 3) | `localhost:8500` (published only to show the registry) | none, in memory | – |
+| Message Broker (Lab 4) | gRPC `message-broker:50051` (Docker network only); admin API `localhost:8600` | SQLite on the `broker-data` volume (durable queues, dead letter channel) | – |
+| Prometheus / Grafana (Lab 4, profile `monitoring`) | `localhost:9090` / `localhost:3000` | volumes | – |
 
 From Lab 2 the services publish **no ports**: the gateway is the only entry point. Image names are written in full in `deploy/docker-compose.yml` (each image under its owner's DockerHub account), so `.env` only holds credentials, the gateway secrets and optional `*_VERSION` overrides.
 
@@ -1007,6 +1009,47 @@ dc logs -f world-service | grep '"level":"ERROR"'
 ```
 
 A replica that is killed without SIGTERM (`docker kill`) is removed after `HEARTBEAT_TTL_SECONDS` (15 s) without heartbeats. For the demo, uncomment the Lab 3 demo block in `deploy/.env`: low limits, health checks every 3 s, and a 20 s circuit breaker window (read by Game, Exam, World and Zombie, which load `deploy/.env`).
+
+### Lab 4: everything through the Message Broker
+
+The **Message Broker** (`message-broker`, Python 3.12) is the only path between components. The rules are in [`docs/lab4-contract.md`](./docs/lab4-contract.md).
+
+- **The gateway** sends every client request to the broker with `Broker.Call`, naming the service (`/world/...` → the `world-service` queue). The broker picks the instance, with the load balancer and the circuit breaker that **moved there from the gateway**.
+- **Services** call each other the same way (`Broker.Call`). `http://gateway:8081` and `INTERNAL_API_KEY` are gone.
+- **Events** are fired with `Broker.Publish` to a **topic** (`exam.passed`, `world.wing-unlocked`, ...). The broker delivers each one to every service that listed that topic when it registered in Service Discovery.
+- **Every service** runs a gRPC `Endpoint` on port 50051, and registers `metadata.grpcPort` and its `topics` in Service Discovery.
+- **Logs:** every container also writes its JSON logs to the shared `logs` volume (`/var/log/kahoots/<instanceId>.log`). The one-shot `logs-init` container makes the volume writable for every image's user before anything else starts.
+- **Monitoring:** Prometheus, Loki, Promtail and Grafana run with `--profile monitoring`.
+
+```bash
+dc() { docker compose -f deploy/docker-compose.yml --env-file deploy/.env "$@"; }   # bash and zsh
+./deploy/setup-env.sh --force && dc down -v   # once, if deploy/.env is from Lab 3 (it still has INTERNAL_API_KEY and 3.0.0 versions)
+dc up -d                                      # add --profile monitoring for Prometheus + Grafana + Loki
+dc ps                                         # logs-init exited 0, message-broker healthy, 2 replicas per service
+
+# the broker's admin API
+curl -s localhost:8600/status                 # load, active threads, queues, DLQ size, circuit breakers
+curl -s localhost:8600/topics                 # every topic, its subscribers and counters
+curl -s localhost:8600/queues                 # one queue per service + one per (topic, subscriber)
+curl -s localhost:8600/dlq                    # dead letters
+curl -s localhost:8500/topics                 # Service Discovery: which service subscribed to which topic
+
+# the broker picks the instance: X-Instance-Id changes, X-Served-By is the queue
+for i in $(seq 6); do curl -s -o /dev/null -D - localhost:8080/world/rooms -H "Authorization: Bearer $TOKEN" | grep -i x-instance-id; done
+
+# internal routes are not reachable from outside (404, never forwarded)
+curl -i -X POST localhost:8080/world/events/exam-passed -H "Authorization: Bearer $TOKEN"
+
+# an event: unlocking a wing publishes world.wing-unlocked (the delivered counter grows in /topics)
+WING=$(curl -s localhost:8080/world/wings -H "Authorization: Bearer $TOKEN" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -X POST localhost:8080/world/wings/$WING/unlock -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8600/topics
+
+# every log line of one request, from every container
+docker run --rm -v deploy_logs:/l busybox:1.36.1 sh -c 'grep -h "<X-Request-Id>" /l/*.log'
+```
+
+Scaling works as in Lab 3 (`dc up -d --scale world-service=3`): the new replica registers its gRPC port and topics, and the broker starts sending it requests and events within `DISCOVERY_CACHE_MS`.
  
 ## 11. Changelog
  
