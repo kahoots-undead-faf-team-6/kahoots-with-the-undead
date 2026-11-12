@@ -891,6 +891,22 @@ with `*_CLIENT=http`. Both read `REQUEST_TIMEOUT_MS`, `MAX_CONCURRENT_REQUESTS` 
  
 Postman collections for each service live in [`/postman`](./postman).
  
+- `lab4-broker.postman_collection.json`: **Lab 4**, 46 requests in 9 folders, with the environment `deploy/lab4.postman_environment.json` (gateway `localhost:8080`, broker admin `localhost:8600`, Service Discovery `localhost:8500`, Prometheus `localhost:9090`, Grafana `localhost:3000`):
+  - `00 Auth`: registers a **new** player each run (public route), its token, and an admin token;
+  - `01` gateway → broker → service: 6 × `GET /world/rooms` (`X-Served-By: world-service`, at least 2 `X-Instance-Id`), `X-Request-Id` kept end to end;
+  - `02` topics: the broker's and Service Discovery's `GET /topics` match the contract's catalog exactly; `exam.passed` subscribers are UP with `grpcPort`; the broker's queues;
+  - `03` event flow: the new player passes the PAD exam (answers read with the admin route), then the test polls until World unlocked the East Wing and Player granted the XP (`exam.passed` → world-service + player-service);
+  - `04` removed routes: every internal route of §12 → `404` through the gateway, and the gateway registers only port 8080 (no 8081);
+  - `05` dead letter channel: `GET /dlq`, `GET /dlq/{id}`, `POST /dlq/{id}/retry` (to fill it: stop `world-service`, pass an exam, wait ~15 s, start it again; with an empty DLQ the item requests check `404 DLQ_ITEM_NOT_FOUND`);
+  - `06` logs download: ndjson filtered by service/level/time, one request followed by `requestId`, the zip (`Content-Type`, `Content-Disposition`), `/admin/logs/files`, 401 / 403 / 400;
+  - `07` HA + load: the broker's `/status` and `/metrics`; `docker pause` one `world-service` replica first and the request shows `X-Rerouted-From`;
+  - `08` monitoring (needs `--profile monitoring`): every Prometheus target up, the 5 alert rules, Grafana health and the 3 dashboards.
+
+  ```bash
+  npx newman run postman/lab4-broker.postman_collection.json -e deploy/lab4.postman_environment.json \
+    --env-var adminKey=$(sed -n 's/^ADMIN_KEY=//p' deploy/.env)
+  ```
+- The older collections now say how they relate to Lab 4 (4.0.0): requests on routes that became internal are marked **`[internal since Lab 4]`** (they answer 404 through the gateway), and the `X-Internal-Key` request is gone. The per-service collections call one service started on its own; in the team stack use the Lab 4 collection.
 - `lab3-scaling.postman_collection.json`: **Lab 3**, 31 requests in 8 folders against `http://localhost:8080` and Service Discovery on `http://localhost:8500`:
   - the registry (2 replicas per service, `game-1..3` with their WebSocket URLs), and `/status` of every service;
   - round-robin (6 requests per service, rotation checked from `X-Instance-Id`), and `X-Request-Id` kept and returned;
