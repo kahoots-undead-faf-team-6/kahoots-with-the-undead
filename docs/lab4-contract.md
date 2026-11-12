@@ -216,11 +216,11 @@ Other services do call Exam, but only on routes players use too, so the gateway 
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| world-service | POST | `/events/exam-passed` | nobody since Lab 4: Exam publishes `exam.passed`. Kept for manual tests, blocked at the gateway |
 
 ### zombie-service
 
-| Service | Method | Path | Called by |
-|---|---|---|---|
+None: every Zombie route is meant for users.
 
 ### resource-service
 
