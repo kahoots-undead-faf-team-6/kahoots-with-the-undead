@@ -32,3 +32,7 @@
 [submodule "services/service-discovery"]
 	path = services/service-discovery
 	url = https://github.com/kahoots-undead-faf-team-6/service-discovery.git
+[submodule "services/message-broker"]
+	path = services/message-broker
+	url = https://github.com/kahoots-undead-faf-team-6/message-broker.git
+	branch = development
