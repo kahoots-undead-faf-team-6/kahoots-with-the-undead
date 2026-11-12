@@ -1,7 +1,8 @@
 {
   "info": {
     "name": "Zombie Service",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Lab 4 (4.0.0): these are direct calls to ONE service started on its own (e.g. `docker run -p <port>:<port> <image>:4.0.0`). In the team stack the services have no published port: use postman/lab4-broker.postman_collection.json (through the gateway and the Message Broker). Routes marked [internal since Lab 4] are called only by other services through Broker.Call; the gateway answers 404 for them."
   },
   "variable": [
     {

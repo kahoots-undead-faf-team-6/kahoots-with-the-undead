@@ -1,0 +1,2188 @@
+{
+  "info": {
+    "name": "Lab 4 - Breaking and Brokering",
+    "description": "Team 6, Lab 4 (4.0.0): everything through the Message Broker. Run with the environment deploy/lab4.postman_environment.json (set adminKey from deploy/.env), against `docker compose ... --profile monitoring up -d`:\n\nnewman run postman/lab4-broker.postman_collection.json -e deploy/lab4.postman_environment.json --env-var adminKey=$(sed -n 's/^ADMIN_KEY=//p' deploy/.env)\n\nFolders 05 and 07 have a manual step to see the DLQ and the reroute (see their descriptions); without it they check the empty/normal case.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Auth",
+      "description": "Tokens for the rest of the run. The user is a NEW player registered through the public Player Service route, so the event flow (an exam can be passed only once per player) works on every run.",
+      "item": [
+        {
+          "name": "Register a new player (public route)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/player/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"email\": \"{{username}}@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Date.now().toString(36) + Math.floor(Math.random() * 1e4);",
+                  "pm.collectionVariables.set(\"username\", \"lab4_\" + n);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"playerId\", pm.response.json().player.playerId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "User token for that player (gateway)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"role\": \"player\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"userToken\", pm.response.json().accessToken);",
+                  "pm.test(\"bearer token\", () => pm.expect(pm.response.json().tokenType).to.eql(\"Bearer\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin token (needs adminKey from deploy/.env)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "token"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"admin-1\",\n  \"role\": \"admin\",\n  \"adminKey\": \"{{adminKey}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"adminToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Gateway -> Service via broker (Grades 5, 6)",
+      "description": "Every client request goes gateway -> Broker.Call -> one instance of the named service (subscriber-based queue). X-Served-By is the queue, X-Instance-Id the instance that answered.",
+      "item": [
+        {
+          "name": "GET /world/rooms (1/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"rr_world\", \"[]\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /world/rooms (2/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /world/rooms (3/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /world/rooms (4/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /world/rooms (5/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /world/rooms (6/6)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"X-Served-By is world-service (the broker queue)\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"world-service\"));",
+                  "const id = pm.response.headers.get(\"X-Instance-Id\");",
+                  "pm.test(\"X-Instance-Id is set\", () => pm.expect(id).to.be.a(\"string\").and.not.empty);",
+                  "const seen = JSON.parse(pm.collectionVariables.get(\"rr_world\") || \"[]\");",
+                  "seen.push(id);",
+                  "pm.collectionVariables.set(\"rr_world\", JSON.stringify(seen));",
+                  "pm.test(\"the broker spread the 6 calls over at least 2 instances\", () => pm.expect(new Set(seen).size).to.be.at.least(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "X-Request-Id is kept end to end",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{requestId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exam/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exam",
+                "courses"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"requestId\", \"lab4-postman-\" + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"same X-Request-Id back\", () => pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.eql(pm.collectionVariables.get(\"requestId\")));",
+                  "pm.test(\"served by exam-service\", () => pm.expect(pm.response.headers.get(\"X-Served-By\")).to.eql(\"exam-service\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Topics (Grades 6, 7)",
+      "description": "The topic catalog of docs/lab4-contract.md \u00a74: the broker and Service Discovery must show every topic with exactly the contract's subscribers (they come from the services' registrations).",
+      "item": [
+        {
+          "name": "Broker GET /topics: every contract topic with its subscribers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/topics",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "topics"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const expected = {\"exam.passed\": [\"player-service\", \"world-service\"], \"world.wing-unlocked\": [\"game-service\"], \"resource.depleted\": [\"game-service\", \"world-service\"], \"base.upgraded\": [\"player-service\"], \"item.crafted\": [\"player-service\"], \"player.leveled-up\": [\"base-service\", \"crafting-service\"], \"game.session-ended\": [\"player-service\"], \"zombie.type-changed\": [\"game-service\"]};",
+                  "const got = Object.fromEntries(pm.response.json().topics.map((t) => [t.name, [...t.subscribers].sort()]));",
+                  "Object.entries(expected).forEach(([topic, subs]) => pm.test(`${topic} -> ${subs.join(\", \")}`, () => pm.expect(got[topic]).to.eql(subs)));",
+                  "pm.test(\"counters are numbers\", () => pm.response.json().topics.forEach((t) => pm.expect(t.published).to.be.a(\"number\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SD GET /topics: same subscribers (from the registrations)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/topics",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "topics"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const expected = {\"exam.passed\": [\"player-service\", \"world-service\"], \"world.wing-unlocked\": [\"game-service\"], \"resource.depleted\": [\"game-service\", \"world-service\"], \"base.upgraded\": [\"player-service\"], \"item.crafted\": [\"player-service\"], \"player.leveled-up\": [\"base-service\", \"crafting-service\"], \"game.session-ended\": [\"player-service\"], \"zombie.type-changed\": [\"game-service\"]};",
+                  "Object.entries(expected).forEach(([topic, subs]) => pm.test(`SD ${topic}`, () => pm.expect(pm.response.json().topics[topic]).to.eql(subs)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SD GET /topics/exam.passed/services: UP instances with grpcPort",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/topics/exam.passed/services",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "topics",
+                "exam.passed",
+                "services"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().services;",
+                  "pm.test(\"player-service and world-service subscribe\", () => pm.expect(Object.keys(s).sort()).to.eql([\"player-service\", \"world-service\"]));",
+                  "pm.test(\"every instance is UP and has metadata.grpcPort\", () => Object.values(s).flat().forEach((i) => { pm.expect(i.status).to.eql(\"UP\"); pm.expect(i.metadata.grpcPort).to.be.a(\"number\"); }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Broker GET /queues: subscriber queues and one queue per (topic, subscriber)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/queues",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "queues"
+              ]
+            },
+            "description": "A subscriber queue appears on the first call to that service; every (topic, subscriber) pair has a topic queue.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test(\"subscriber queues for the services called so far\", () => [\"world-service\", \"exam-service\", \"player-service\"].forEach((n) => pm.expect(q.services.map((s) => s.name)).to.include(n)));",
+                  "pm.test(\"subscriber-based queues\", () => q.services.forEach((s) => pm.expect(s.type).to.eql(\"subscriber\")));",
+                  "pm.test(\"topic queues are named <topic>/<subscriber service>\", () => q.topics.forEach((t) => { pm.expect(t.type).to.eql(\"topic\"); pm.expect(t.name).to.eql(`${t.topic}/${t.service}`); }));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Event flow: exam.passed (Grade 8)",
+      "description": "The new player passes the PAD exam. Exam publishes exam.passed; the broker delivers it to world-service (unlocks the East Wing, whose requiredCourseId is PAD) and player-service (XP of the achievements). Nobody calls World or Player directly.",
+      "item": [
+        {
+          "name": "Admin: the PAD questions with the answers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/exam/courses/f0000000-0000-4000-8000-000000000002/questions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exam",
+                "courses",
+                "f0000000-0000-4000-8000-000000000002",
+                "questions"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const answers = Object.fromEntries(pm.response.json().map((q) => [q.questionId, q.correctOption]));",
+                  "pm.collectionVariables.set(\"answers\", JSON.stringify(answers));",
+                  "pm.test(\"questions with correctOption\", () => pm.expect(Object.keys(answers).length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Broker counter before: exam.passed published",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/topics",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "topics"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json().topics.find((x) => x.name === \"exam.passed\");",
+                  "pm.collectionVariables.set(\"examPassedBefore\", t.published);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "The player starts the PAD exam",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exam/exams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exam",
+                "exams"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"courseId\": \"f0000000-0000-4000-8000-000000000002\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"examId\", pm.response.json().examId);",
+                  "pm.collectionVariables.set(\"examQuestions\", JSON.stringify(pm.response.json().questions.map((q) => q.questionId)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "The player answers correctly -> passed (Exam publishes exam.passed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exam/exams/{{examId}}/submit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exam",
+                "exams",
+                "{{examId}}",
+                "submit"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{{submitBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const answers = JSON.parse(pm.collectionVariables.get(\"answers\"));",
+                  "const ids = JSON.parse(pm.collectionVariables.get(\"examQuestions\"));",
+                  "pm.collectionVariables.set(\"submitBody\", JSON.stringify({ answers: ids.map((id) => ({ questionId: id, selectedOption: answers[id] })) }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"passed\", () => pm.expect(pm.response.json().passed).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "World: the East Wing is unlocked (poll, exam.passed -> world-service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/wings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "wings"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "// poll pm.variables.get('baseUrl') + '/world/wings': the event is delivered asynchronously by the broker",
+                  "const deadline = Date.now() + 20000;",
+                  "const once = () => pm.sendRequest({ url: pm.variables.get('baseUrl') + '/world/wings', header: { Authorization: 'Bearer ' + pm.collectionVariables.get('userToken') } }, (err, res) => {",
+                  "  const ok = !err && res.code === 200 && (res.json().some((w) => w.requiredCourseId === 'f0000000-0000-4000-8000-000000000002' && w.unlocked === true));",
+                  "  if (ok || Date.now() > deadline) {",
+                  "    pm.test(\"East Wing unlocked by the event\", () => pm.expect(ok, err ? String(err) : res.text()).to.eql(true));",
+                  "  } else setTimeout(once, 1000);",
+                  "});",
+                  "once();"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player: XP granted (poll, exam.passed -> player-service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/player/players/{{playerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "// poll pm.variables.get('baseUrl') + '/player/players/' + pm.collectionVariables.get('playerId'): the event is delivered asynchronously by the broker",
+                  "const deadline = Date.now() + 20000;",
+                  "const once = () => pm.sendRequest({ url: pm.variables.get('baseUrl') + '/player/players/' + pm.collectionVariables.get('playerId'), header: { Authorization: 'Bearer ' + pm.collectionVariables.get('userToken') } }, (err, res) => {",
+                  "  const ok = !err && res.code === 200 && (res.json().xp > 0);",
+                  "  if (ok || Date.now() > deadline) {",
+                  "    pm.test(\"the achievements' XP reached the player\", () => pm.expect(ok, err ? String(err) : res.text()).to.eql(true));",
+                  "  } else setTimeout(once, 1000);",
+                  "});",
+                  "once();"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Broker: exam.passed was published and delivered",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/topics",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "topics"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json().topics.find((x) => x.name === \"exam.passed\");",
+                  "pm.test(\"published +1\", () => pm.expect(t.published).to.be.above(Number(pm.collectionVariables.get(\"examPassedBefore\"))));",
+                  "pm.test(\"delivered to its subscribers\", () => pm.expect(t.delivered).to.be.at.least(2));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Removed routes (Grade 8)",
+      "description": "The internal routes of \u00a712 are blocked at the gateway (404), and the gateway's internal listener 8081 is gone: services call each other only through the broker.",
+      "item": [
+        {
+          "name": "POST /world/events/exam-passed -> 404 (world-service (Exam's old notification))",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/world/events/exam-passed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "events",
+                "exam-passed"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /player/players/{{playerId}}/inventory -> 404 (player-service (item grant, crafting-service only))",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/player/players/{{playerId}}/inventory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "inventory"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /player/players/{{playerId}}/xp -> 404 (player-service (XP change, game-service only))",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/player/players/{{playerId}}/xp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "xp"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /player/players/{{playerId}}/rewards -> 404 (player-service (rewards, no caller left))",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/player/players/{{playerId}}/rewards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "rewards"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /resource/resources/consume -> 404 (resource-service (base-service, crafting-service))",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resource/resources/consume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource",
+                "resources",
+                "consume"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /resource/resources/grant -> 404 (resource-service (crafting-service and other services))",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/resource/resources/grant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "resource",
+                "resources",
+                "grant"
+              ]
+            },
+            "description": "Internal route (docs/lab4-contract.md \u00a712): only other services call it, through Broker.Call. The gateway answers 404 even to an admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"NOT_FOUND, never forwarded\", () => pm.expect(pm.response.json().error).to.eql(\"NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player routes on the same resources stay open",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/player/players/{{playerId}}/inventory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "player",
+                "players",
+                "{{playerId}}",
+                "inventory"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Port 8081 is gone: the gateway registers only its public port",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{sdUrl}}/services/gateway",
+              "host": [
+                "{{sdUrl}}"
+              ],
+              "path": [
+                "services",
+                "gateway"
+              ]
+            },
+            "description": "Lab 2/3 had an internal listener on 8081 for service-to-service calls; Lab 4 services use Broker.Call.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const g = pm.response.json().instances;",
+                  "pm.test(\"a gateway instance is registered\", () => pm.expect(g.length).to.be.at.least(1));",
+                  "pm.test(\"on 8080, nothing on 8081\", () => g.forEach((i) => { pm.expect(i.port).to.eql(8080); pm.expect(JSON.stringify(i)).to.not.include(\"8081\"); }));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 Dead Letter Channel (Grade 9)",
+      "description": "To fill the DLQ before this folder: `docker compose ... stop world-service`, then pass an exam (folder 03) or unlock a wing; after 5 failed deliveries (1, 2, 4, 8 s) the exam.passed delivery to world-service becomes a dead letter. `docker compose ... start world-service`, then run this folder: the retry delivers it. With an empty DLQ the item requests answer 404 DLQ_ITEM_NOT_FOUND, which is also checked.",
+      "item": [
+        {
+          "name": "GET /dlq",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/dlq",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "dlq"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"total and items\", () => { pm.expect(body.total).to.be.a(\"number\"); pm.expect(body.items).to.be.an(\"array\"); });",
+                  "pm.collectionVariables.set(\"dlqId\", body.items.length ? body.items[0].id : \"none\");",
+                  "if (!body.items.length) console.log(\"DLQ is empty: see the folder description to fill it\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /dlq/{id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/dlq/{{dlqId}}",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "dlq",
+                "{{dlqId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get(\"dlqId\") === \"none\") {",
+                  "  pm.test(\"empty DLQ: 404 DLQ_ITEM_NOT_FOUND\", () => { pm.response.to.have.status(404); pm.expect(pm.response.json().error).to.eql(\"DLQ_ITEM_NOT_FOUND\"); });",
+                  "} else {",
+                  "  pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "  pm.test(\"a dead letter with its kind and reason\", () => { pm.expect(pm.response.json().kind).to.be.oneOf([\"event\", \"call\"]); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /dlq/{id}/retry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/dlq/{{dlqId}}/retry",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "dlq",
+                "{{dlqId}}",
+                "retry"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get(\"dlqId\") === \"none\") {",
+                  "  pm.test(\"empty DLQ: 404\", () => pm.response.to.have.status(404));",
+                  "} else {",
+                  "  pm.test(\"retried (2xx)\", () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 Logs download (Grade 4)",
+      "description": "GET /admin/logs/download on the gateway reads every service's $LOG_DIR/<instanceId>.log (shared volume). Admin only.",
+      "item": [
+        {
+          "name": "ndjson: world-service, level >= INFO, last 30 minutes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?format=ndjson&service=world-service&level=INFO&since=30m&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "ndjson"
+                },
+                {
+                  "key": "service",
+                  "value": "world-service"
+                },
+                {
+                  "key": "level",
+                  "value": "INFO"
+                },
+                {
+                  "key": "since",
+                  "value": "30m"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/x-ndjson\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/x-ndjson\"));",
+                  "const lines = pm.response.text().trim().split(\"\\n\").filter(Boolean).map(JSON.parse);",
+                  "pm.test(\"has lines\", () => pm.expect(lines.length).to.be.above(0));",
+                  "pm.test(\"only world-service, never DEBUG\", () => lines.forEach((l) => { pm.expect(l.service).to.eql(\"world-service\"); pm.expect(l.level).to.not.eql(\"DEBUG\"); }));",
+                  "pm.test(\"sorted by time\", () => lines.slice(1).forEach((l, i) => pm.expect(l.time >= lines[i].time).to.eql(true)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ndjson: one request followed across services (requestId from folder 01)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?format=ndjson&requestId={{requestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "ndjson"
+                },
+                {
+                  "key": "requestId",
+                  "value": "{{requestId}}"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const lines = pm.response.text().trim().split(\"\\n\").filter(Boolean).map(JSON.parse);",
+                  "pm.test(\"every line has this requestId\", () => lines.forEach((l) => pm.expect(l.requestId).to.eql(pm.collectionVariables.get(\"requestId\"))));",
+                  "pm.test(\"the gateway and exam-service both logged it\", () => { const s = new Set(lines.map((l) => l.service)); pm.expect([...s]).to.include.members([\"gateway\", \"exam-service\"]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "zip: one file per instance + manifest.json",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?level=WARN&since=1h",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "WARN"
+                },
+                {
+                  "key": "since",
+                  "value": "1h"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Content-Type application/zip\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.eql(\"application/zip\"));",
+                  "pm.test(\"Content-Disposition attachment kahoots-logs-<UTC>.zip\", () => pm.expect(pm.response.headers.get(\"Content-Disposition\")).to.match(/^attachment; filename=\"kahoots-logs-\\d{8}T\\d{6}Z\\.zip\"$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/logs/files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/files",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "files"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"every instance has a log file\", () => pm.expect(pm.response.json().files.length).to.be.at.least(10));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?format=ndjson",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "ndjson"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"MISSING_TOKEN\", () => pm.expect(pm.response.json().error).to.eql(\"MISSING_TOKEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Player token -> 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?format=ndjson",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "ndjson"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"FORBIDDEN\", () => pm.expect(pm.response.json().error).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad date -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/logs/download?since=yesterday",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "logs",
+                "download"
+              ],
+              "query": [
+                {
+                  "key": "since",
+                  "value": "yesterday"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"INVALID_QUERY\", () => pm.expect(pm.response.json().error).to.eql(\"INVALID_QUERY\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 HA + load balancing (Grade 10)",
+      "description": "Manual step for the reroute: `docker pause` ONE world-service replica, then run this folder: the broker's breaker trips on it and the calls are rerouted, so they still answer 200 with X-Rerouted-From. `docker unpause` afterwards.",
+      "item": [
+        {
+          "name": "Broker GET /status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/status",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test(\"Lab 3 status format\", () => [\"service\", \"instanceId\", \"version\", \"status\", \"load\", \"inFlight\"].forEach((k) => pm.expect(s).to.have.property(k)));",
+                  "pm.test(\"thread-per-request counters\", () => pm.expect(s.activeThreads).to.be.a(\"number\"));",
+                  "pm.test(\"dlqSize and circuitBreakers\", () => { pm.expect(s).to.have.property(\"dlqSize\"); pm.expect(s).to.have.property(\"circuitBreakers\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Broker GET /metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{brokerUrl}}/metrics",
+              "host": [
+                "{{brokerUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"broker series\", () => [\"broker_calls_total\", \"broker_events_published_total\", \"broker_queue_pending\", \"broker_active_threads\"].forEach((m) => pm.expect(pm.response.text()).to.include(m)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calls keep answering; X-Rerouted-From when a replica is paused",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/world/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "world",
+                "rooms"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const from = pm.response.headers.get(\"X-Rerouted-From\");",
+                  "if (from) pm.test(\"rerouted away from the paused instance\", () => pm.expect(from).to.not.eql(pm.response.headers.get(\"X-Instance-Id\")));",
+                  "else console.log(\"no reroute: pause one world-service replica to see X-Rerouted-From\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 Monitoring (Grade 10)",
+      "description": "Needs `--profile monitoring`.",
+      "item": [
+        {
+          "name": "Prometheus: every target UP",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{prometheusUrl}}/api/v1/targets",
+              "host": [
+                "{{prometheusUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "targets"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json().data.activeTargets;",
+                  "pm.test(\"services discovered through SD\", () => pm.expect(t.filter((x) => x.labels.job === \"services\").length).to.be.at.least(10));",
+                  "pm.test(\"the broker is scraped\", () => pm.expect(t.some((x) => x.labels.job === \"message-broker\")).to.eql(true));",
+                  "pm.test(\"all targets up\", () => pm.expect(t.filter((x) => x.health !== \"up\").map((x) => x.scrapeUrl)).to.eql([]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Prometheus: the 5 alert rules are loaded",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{prometheusUrl}}/api/v1/rules",
+              "host": [
+                "{{prometheusUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "rules"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const names = pm.response.json().data.groups.flatMap((g) => g.rules.map((r) => r.name));",
+                  "pm.test(\"rules\", () => pm.expect(names).to.include.members([\"InstanceDown\", \"HighErrorRate\", \"HighLoad\", \"DLQNotEmpty\", \"CircuitOpen\"]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Grafana /api/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{grafanaUrl}}/api/health",
+              "host": [
+                "{{grafanaUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"database ok\", () => pm.expect(pm.response.json().database).to.eql(\"ok\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Grafana: the 3 dashboards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{grafanaUrl}}/api/search?tag=kahoots",
+              "host": [
+                "{{grafanaUrl}}"
+              ],
+              "path": [
+                "api",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "tag",
+                  "value": "kahoots"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Overview, Message Broker, Logs\", () => pm.expect(pm.response.json().map((d) => d.title)).to.include.members([\"Kahoots Overview\", \"Message Broker\", \"Logs\"]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "playerId",
+      "value": ""
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "rr_world",
+      "value": ""
+    },
+    {
+      "key": "requestId",
+      "value": ""
+    },
+    {
+      "key": "answers",
+      "value": ""
+    },
+    {
+      "key": "examId",
+      "value": ""
+    },
+    {
+      "key": "examQuestions",
+      "value": ""
+    },
+    {
+      "key": "submitBody",
+      "value": ""
+    },
+    {
+      "key": "examPassedBefore",
+      "value": ""
+    },
+    {
+      "key": "dlqId",
+      "value": ""
+    }
+  ]
+}

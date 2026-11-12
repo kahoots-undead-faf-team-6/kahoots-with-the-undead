@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Lab 2 - Presentation (API Gateway)",
-    "description": "Run the folders in order, top to bottom. Gateway: http://localhost:8080 (stack started with `./deploy/setup-env.sh --demo` + `docker compose up`).\nBefore running: Collection -> Variables -> set adminKey to the ADMIN_KEY value from deploy/.env (only the admin requests need it).\nTokens and ids are saved automatically by each request.",
+    "description": "Run the folders in order, top to bottom. Gateway: http://localhost:8080 (stack started with `./deploy/setup-env.sh --demo` + `docker compose up`).\nBefore running: Collection -> Variables -> set adminKey to the ADMIN_KEY value from deploy/.env (only the admin requests need it).\nTokens and ids are saved automatically by each request.\n\nLab 4 (4.0.0): requests go gateway -> Message Broker -> one instance; port 8081 and X-Internal-Key are gone. Routes marked [internal since Lab 4] answer 404 through the gateway (docs/lab4-contract.md §12). The Lab 4 collection is postman/lab4-broker.postman_collection.json.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -1526,7 +1526,7 @@
           ]
         },
         {
-          "name": "Give player-1 materials (Resource grant)",
+          "name": "[internal since Lab 4] Give player-1 materials (Resource grant)",
           "request": {
             "method": "POST",
             "header": [
@@ -1556,7 +1556,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (resource-service: crafting-service and other services, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -1845,7 +1846,7 @@
           ]
         },
         {
-          "name": "Give alice a coffee",
+          "name": "[internal since Lab 4] Give alice a coffee",
           "request": {
             "method": "POST",
             "header": [
@@ -1886,7 +1887,8 @@
                   "type": "string"
                 }
               ]
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -1901,7 +1903,7 @@
           ]
         },
         {
-          "name": "Give bob a sandwich",
+          "name": "[internal since Lab 4] Give bob a sandwich",
           "request": {
             "method": "POST",
             "header": [
@@ -1942,7 +1944,8 @@
                   "type": "string"
                 }
               ]
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
