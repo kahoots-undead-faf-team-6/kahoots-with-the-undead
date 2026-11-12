@@ -1,0 +1,34 @@
+# Unit test of the alert rules: docker run --rm --entrypoint promtool -v "$PWD/deploy/monitoring/prometheus:/p" -w /p prom/prometheus:v2.55.1 test rules rules.test.yml
+rule_files: [rules.yml]
+evaluation_interval: 5s
+tests:
+  - interval: 5s
+    input_series:
+      - series: 'service_load{service="world-service",instance_id="world-1"}'
+        values: '0.9x20'
+      - series: 'broker_circuit_state{service="world-service",instance="world-2"}'
+        values: '2x20'
+      - series: 'broker_dlq_size'
+        values: '3x30'
+      - series: 'up{job="services",instance="world-1"}'
+        values: '0x20'
+      - series: 'http_requests_total{service="exam-service",status="500"}'
+        values: '0+10x30'
+      - series: 'http_requests_total{service="exam-service",status="200"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 90s
+        alertname: HighLoad
+        exp_alerts: [{exp_labels: {severity: warning, service: world-service, instance_id: world-1}, exp_annotations: {summary: "world-service / world-1 load 0.9"}}]
+      - eval_time: 90s
+        alertname: CircuitOpen
+        exp_alerts: [{exp_labels: {severity: critical, service: world-service, instance: world-2}, exp_annotations: {summary: "circuit open for world-service / world-2"}}]
+      - eval_time: 90s
+        alertname: InstanceDown
+        exp_alerts: [{exp_labels: {severity: critical, job: services, instance: world-1}, exp_annotations: {summary: "services / world-1 is not answering /metrics"}}]
+      - eval_time: 140s
+        alertname: DLQNotEmpty
+        exp_alerts: [{exp_labels: {severity: warning}, exp_annotations: {summary: "3 message(s) in the broker's dead letter channel (GET localhost:8600/dlq)"}}]
+      - eval_time: 140s
+        alertname: HighErrorRate
+        exp_alerts: [{exp_labels: {severity: warning, service: exam-service}, exp_annotations: {summary: "exam-service: 50% of the requests fail (5xx)"}}]

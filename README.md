@@ -1019,7 +1019,7 @@ The **Message Broker** (`message-broker`, Python 3.12) is the only path between 
 - **Events** are fired with `Broker.Publish` to a **topic** (`exam.passed`, `world.wing-unlocked`, ...). The broker delivers each one to every service that listed that topic when it registered in Service Discovery.
 - **Every service** runs a gRPC `Endpoint` on port 50051, and registers `metadata.grpcPort` and its `topics` in Service Discovery.
 - **Logs:** every container also writes its JSON logs to the shared `logs` volume (`/var/log/kahoots/<instanceId>.log`). The one-shot `logs-init` container makes the volume writable for every image's user before anything else starts.
-- **Monitoring:** Prometheus, Loki, Promtail and Grafana run with `--profile monitoring`.
+- **Monitoring:** Prometheus, Loki, Promtail and Grafana run with `--profile monitoring` (see *Lab 4: Monitoring* below).
 
 ```bash
 dc() { docker compose -f deploy/docker-compose.yml --env-file deploy/.env "$@"; }   # bash and zsh
@@ -1050,6 +1050,35 @@ docker run --rm -v deploy_logs:/l busybox:1.36.1 sh -c 'grep -h "<X-Request-Id>"
 ```
 
 Scaling works as in Lab 3 (`dc up -d --scale world-service=3`): the new replica registers its gRPC port and topics, and the broker starts sending it requests and events within `DISCOVERY_CACHE_MS`.
+
+### Lab 4: Monitoring (Prometheus + Grafana + Loki)
+
+```bash
+dc --profile monitoring up -d       # the stack + Prometheus, Loki, Promtail, Grafana
+```
+
+| Tool | Open | What it does |
+|---|---|---|
+| **Grafana** | http://localhost:3000 (anonymous viewer; `admin` / `GRAFANA_ADMIN_PASSWORD` from `deploy/.env` to edit) | Dashboards in the **Kahoots** folder, provisioned from `deploy/monitoring/grafana/dashboards/` |
+| **Prometheus** | http://localhost:9090 (`/targets`, `/alerts`) | Scrapes every 5 s: every UP instance from Service Discovery `GET /prometheus/targets` (job `services`, new replicas appear by themselves), and the broker `message-broker:8600` (Service Discovery has no `/metrics`) |
+| **Loki + Promtail** | through Grafana (Explore → Loki, or the Logs dashboard) | Promtail reads the shared `logs` volume (`/var/log/kahoots/*.log`), parses the JSON and labels `service`, `instanceId`, `level`; `requestId` stays a field of the line |
+
+Every service exposes `GET /metrics` with the same series: `http_requests_total{service,instance_id,method,route,status}`, `http_request_duration_seconds` (histogram), `inflight_requests`, `service_load`. The broker adds `broker_calls_total`, `broker_events_published_total`, `broker_deliveries_total`, `broker_queue_pending`, `broker_dlq_size`, `broker_circuit_state` (0 closed, 1 half-open, 2 open), `broker_reroutes_total`, `broker_active_threads`, `broker_instance_score`.
+
+**Dashboards**
+- **Kahoots Overview**: instances UP, requests/s, 5xx rate, p95 latency, in-flight and firing alerts; then per service: requests/s, error rate, p95, responses by status, **load per instance** (the 0.7 / 0.9 lines are Service Discovery's WARN / CRITICAL thresholds), in-flight per instance, instances UP per service, top routes. Filter with the `service` variable.
+- **Message Broker**: calls/s, events/s, pending deliveries, DLQ size, open circuits, active threads; calls/s per target and status, call p95; events published per topic, deliveries per topic → subscriber and result, pending per queue, retries and DLQ; circuit state per instance, breaker trips and HA reroutes, least-load score per instance, threads.
+- **Logs**: log lines/s by level and by service, and the log lines themselves, filtered by `service`, minimum `level`, `requestId` and free text.
+
+**Alert rules** (`deploy/monitoring/prometheus/rules.yml`, visible at localhost:9090/alerts and as "Firing alerts" on the Overview): `InstanceDown` (`up == 0` for 30 s), `HighErrorRate` (> 5% 5xx over 1 min), `HighLoad` (`service_load > 0.7` for 30 s), `DLQNotEmpty`, `CircuitOpen`. Service Discovery's own load alerts still go to Telegram/Discord (Lab 3).
+Check them without the stack: `docker run --rm --entrypoint promtool -v "$PWD/deploy/monitoring/prometheus:/p" -w /p prom/prometheus:v2.55.1 test rules rules.test.yml`.
+
+**Demo in 5 steps**
+1. **Load:** `for i in $(seq 300); do curl -s -o /dev/null -H "Authorization: Bearer $TOKEN" localhost:8080/world/rooms & done; wait`. On **Kahoots Overview** the requests/s rise, both world instances share the traffic, and the load per instance goes up.
+2. **Pause a replica:** `docker pause $(docker ps -qf name=world-service | head -1)`, then send the loop again. On **Message Broker**, *Circuit state* goes to 2 (open) for that instance, *Breaker trips and HA reroutes* counts the reroutes, and the calls keep answering 200 from the other instance. Prometheus shows `InstanceDown`/`CircuitOpen` under Alerts.
+3. **Dead letters:** with **every** world replica paused, unlock a wing (see above). The `exam.passed` / `world.wing-unlocked` deliveries fail, are retried (1, 2, 4, 8, 16 s), and end up in the DLQ: *DLQ size* and `DLQNotEmpty` turn red (`curl localhost:8600/dlq`). `docker unpause ...`, then `curl -X POST localhost:8600/dlq/<id>/retry`.
+4. **Find one request:** send `curl -H 'X-Request-Id: demo-42' -H "Authorization: Bearer $TOKEN" localhost:8080/crafting/players/$PLAYER/recipes`, open the **Logs** dashboard, and put `demo-42` in *requestId*: the gateway's, the broker's and every service's lines for that request appear together (crafting → player, exam, world, resource).
+5. **Download the same logs:** `curl -H "Authorization: Bearer $ADMIN_TOKEN" -o logs.zip 'localhost:8080/admin/logs/download?requestId=demo-42'` (gateway, Grade 4).
  
 ## 11. Changelog
  

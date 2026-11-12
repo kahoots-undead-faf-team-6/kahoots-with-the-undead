@@ -1,0 +1,49 @@
+# Alert rules (Lab 4, Grade 10). Shown in Prometheus (localhost:9090/alerts) and on the Grafana dashboards.
+# Service Discovery sends its own load alerts to Telegram/Discord (Lab 3); these cover the whole system.
+groups:
+  - name: kahoots
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} / {{ $labels.instance }} is not answering /metrics"
+
+      - alert: HighErrorRate
+        # more than 5% of the requests of a service answered 5xx over the last minute
+        expr: |
+          sum by (service) (rate(http_requests_total{status=~"5.."}[1m]))
+            / sum by (service) (rate(http_requests_total[1m])) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | humanizePercentage }} of the requests fail (5xx)"
+
+      - alert: HighLoad
+        # the same load Service Discovery alerts on: inflight / MAX_CONCURRENT_REQUESTS
+        expr: service_load > 0.7
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} / {{ $labels.instance_id }} load {{ $value }}"
+
+      - alert: DLQNotEmpty
+        expr: broker_dlq_size > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} message(s) in the broker's dead letter channel (GET localhost:8600/dlq)"
+
+      - alert: CircuitOpen
+        # broker_circuit_state: 0 closed, 1 half-open, 2 open
+        expr: broker_circuit_state == 2
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "circuit open for {{ $labels.service }} / {{ $labels.instance }}"
