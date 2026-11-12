@@ -2,7 +2,7 @@
   "info": {
     "name": "Lab 2 - API Gateway",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Everything goes through the gateway (port 8080). Run the folders in order. The token from '1. Auth' is used for every request through collection-level Bearer auth; admin requests use adminToken. Folders 8-9 (Gabriel): Player and Crafting through the gateway, the 429 burst and the services' own 408. Folders 6 and 9 need DEMO_MODE=true and low limits."
+    "description": "Everything goes through the gateway (port 8080). Run the folders in order. The token from '1. Auth' is used for every request through collection-level Bearer auth; admin requests use adminToken. Folders 8-9 (Gabriel): Player and Crafting through the gateway, the 429 burst and the services' own 408. Folders 6 and 9 need DEMO_MODE=true and low limits.\n\nLab 4 (4.0.0): requests go gateway -> Message Broker -> one instance; port 8081 and X-Internal-Key are gone. Routes marked [internal since Lab 4] answer 404 through the gateway (docs/lab4-contract.md §12). The Lab 4 collection is postman/lab4-broker.postman_collection.json."
   },
   "auth": {
     "type": "bearer",
@@ -733,44 +733,6 @@
                 "exec": [
                   "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
                   "pm.test(\"error INVALID_TOKEN\", () => pm.expect(pm.response.json().error).to.eql(\"INVALID_TOKEN\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Wrong internal key -> 401",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Internal-Key",
-                "value": "wrong-key"
-              }
-            ],
-            "description": "",
-            "url": {
-              "raw": "{{gatewayUrl}}/game/sessions",
-              "host": [
-                "{{gatewayUrl}}"
-              ],
-              "path": [
-                "game",
-                "sessions"
-              ]
-            },
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status 401\", () => pm.response.to.have.status(401));",
-                  "pm.test(\"error INVALID_INTERNAL_KEY\", () => pm.expect(pm.response.json().error).to.eql(\"INVALID_INTERNAL_KEY\"));"
                 ]
               }
             }
@@ -1637,7 +1599,7 @@
           ]
         },
         {
-          "name": "Setup: give bob a sandwich (service-style grant)",
+          "name": "[internal since Lab 4] Setup: give bob a sandwich (service-style grant)",
           "request": {
             "method": "POST",
             "header": [
@@ -1646,7 +1608,7 @@
                 "value": "application/json"
               }
             ],
-            "description": "",
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404.",
             "url": {
               "raw": "{{gatewayUrl}}/player/players/aaaaaaaa-0000-4000-8000-000000000002/inventory",
               "host": [

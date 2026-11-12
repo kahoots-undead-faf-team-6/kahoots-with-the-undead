@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Player Service",
-    "description": "Team 6 - Player Service (Moraru Gabriel), port 3032. Seeded players alice/bob/carol, password: password123. Run the whole collection with the Collection Runner: it registers a new player each run, so it can be run repeatedly.",
+    "description": "Team 6 - Player Service (Moraru Gabriel), port 3032. Seeded players alice/bob/carol, password: password123. Run the whole collection with the Collection Runner: it registers a new player each run, so it can be run repeatedly.\n\nLab 4 (4.0.0): these are direct calls to ONE service started on its own (e.g. `docker run -p <port>:<port> <image>:4.0.0`). In the team stack the services have no published port: use postman/lab4-broker.postman_collection.json (through the gateway and the Message Broker). Routes marked [internal since Lab 4] are called only by other services through Broker.Call; the gateway answers 404 for them.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -648,7 +648,7 @@
           ]
         },
         {
-          "name": "Add XP (level-up)",
+          "name": "[internal since Lab 4] Add XP (level-up)",
           "request": {
             "method": "PATCH",
             "header": [
@@ -676,7 +676,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only game-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -692,7 +693,7 @@
           ]
         },
         {
-          "name": "Remove XP (Tourist Zombie steals XP)",
+          "name": "[internal since Lab 4] Remove XP (Tourist Zombie steals XP)",
           "request": {
             "method": "PATCH",
             "header": [
@@ -720,7 +721,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only game-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -735,7 +737,7 @@
           ]
         },
         {
-          "name": "Give reward (Exam achievement)",
+          "name": "[internal since Lab 4] Give reward (Exam achievement)",
           "request": {
             "method": "POST",
             "header": [
@@ -763,7 +765,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: no caller left (XP comes from the exam.passed event)). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -778,7 +781,7 @@
           ]
         },
         {
-          "name": "Give the same reward again (idempotent, 200)",
+          "name": "[internal since Lab 4] Give the same reward again (idempotent, 200)",
           "request": {
             "method": "POST",
             "header": [
@@ -806,7 +809,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: no caller left (XP comes from the exam.passed event)). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -1285,7 +1289,7 @@
           ]
         },
         {
-          "name": "Grant item (Crafting delivers an item)",
+          "name": "[internal since Lab 4] Grant item (Crafting delivers an item)",
           "request": {
             "method": "POST",
             "header": [
@@ -1313,7 +1317,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -1337,7 +1342,7 @@
           ]
         },
         {
-          "name": "Grant again with the same grantId (idempotent, 200)",
+          "name": "[internal since Lab 4] Grant again with the same grantId (idempotent, 200)",
           "request": {
             "method": "POST",
             "header": [
@@ -1365,7 +1370,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {
@@ -1484,7 +1490,7 @@
       "name": "Trades",
       "item": [
         {
-          "name": "Setup: give bob a sandwich",
+          "name": "[internal since Lab 4] Setup: give bob a sandwich",
           "request": {
             "method": "POST",
             "header": [
@@ -1512,7 +1518,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Internal since Lab 4 (player-service: only crafting-service, through Broker.Call). Through the gateway this answers 404."
           },
           "event": [
             {

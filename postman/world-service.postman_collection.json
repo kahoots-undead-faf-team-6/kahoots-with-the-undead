@@ -1,7 +1,8 @@
 {
   "info": {
     "name": "World Service",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Lab 4 (4.0.0): these are direct calls to ONE service started on its own (e.g. `docker run -p <port>:<port> <image>:4.0.0`). In the team stack the services have no published port: use postman/lab4-broker.postman_collection.json (through the gateway and the Message Broker). Routes marked [internal since Lab 4] are called only by other services through Broker.Call; the gateway answers 404 for them."
   },
   "variable": [
     {
@@ -1703,7 +1704,7 @@
           ]
         },
         {
-          "name": "Verified ExamPassed (World -> Exam)",
+          "name": "[internal since Lab 4] Verified ExamPassed (World -> Exam)",
           "request": {
             "method": "POST",
             "header": [
@@ -1712,7 +1713,7 @@
                 "value": "application/json"
               }
             ],
-            "description": "Exam confirms this player passed PAD, so World accepts the event. The wing is already unlocked, so nothing changes.",
+            "description": "Exam confirms this player passed PAD, so World accepts the event. The wing is already unlocked, so nothing changes.\n\nInternal since Lab 4 (world-service: nobody since Lab 4 (Exam publishes exam.passed)). Through the gateway this answers 404.",
             "url": {
               "raw": "{{gatewayUrl}}/world/events/exam-passed",
               "host": [
@@ -1758,7 +1759,7 @@
           ]
         },
         {
-          "name": "Fake ExamPassed -> 422 (World -> Exam)",
+          "name": "[internal since Lab 4] Fake ExamPassed -> 422 (World -> Exam)",
           "request": {
             "method": "POST",
             "header": [
@@ -1767,7 +1768,7 @@
                 "value": "application/json"
               }
             ],
-            "description": "The player never took Linear Algebra, so Exam does not confirm the event and World refuses it.",
+            "description": "The player never took Linear Algebra, so Exam does not confirm the event and World refuses it.\n\nInternal since Lab 4 (world-service: nobody since Lab 4 (Exam publishes exam.passed)). Through the gateway this answers 404.",
             "url": {
               "raw": "{{gatewayUrl}}/world/events/exam-passed",
               "host": [
