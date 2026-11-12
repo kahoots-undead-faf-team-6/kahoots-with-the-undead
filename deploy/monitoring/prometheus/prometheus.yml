@@ -7,6 +7,7 @@ rule_files:
   - /etc/prometheus/rules.yml
 
 scrape_configs:
+  # Service Discovery itself has no /metrics (its load is in GET /status), so it is not scraped.
   # Every UP instance registered in Service Discovery (services and the gateway), found through
   # SD's GET /prometheus/targets (http_sd), so new replicas are scraped without editing this file.
   # Each target comes with the labels service and instance_id; the services' own series carry the
@@ -33,10 +34,3 @@ scrape_configs:
       - targets: ["message-broker:8600"]
         labels:
           instance_id: message-broker
-
-  - job_name: service-discovery
-    static_configs:
-      - targets: ["service-discovery:8500"]
-        labels:
-          service: service-discovery
-          instance_id: service-discovery

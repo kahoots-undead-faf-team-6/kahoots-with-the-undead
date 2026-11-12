@@ -1060,7 +1060,7 @@ dc --profile monitoring up -d       # the stack + Prometheus, Loki, Promtail, Gr
 | Tool | Open | What it does |
 |---|---|---|
 | **Grafana** | http://localhost:3000 (anonymous viewer; `admin` / `GRAFANA_ADMIN_PASSWORD` from `deploy/.env` to edit) | Dashboards in the **Kahoots** folder, provisioned from `deploy/monitoring/grafana/dashboards/` |
-| **Prometheus** | http://localhost:9090 (`/targets`, `/alerts`) | Scrapes every 5 s: every UP instance from Service Discovery `GET /prometheus/targets` (job `services`, new replicas appear by themselves), the broker `message-broker:8600` and `service-discovery:8500` |
+| **Prometheus** | http://localhost:9090 (`/targets`, `/alerts`) | Scrapes every 5 s: every UP instance from Service Discovery `GET /prometheus/targets` (job `services`, new replicas appear by themselves), and the broker `message-broker:8600` (Service Discovery has no `/metrics`) |
 | **Loki + Promtail** | through Grafana (Explore → Loki, or the Logs dashboard) | Promtail reads the shared `logs` volume (`/var/log/kahoots/*.log`), parses the JSON and labels `service`, `instanceId`, `level`; `requestId` stays a field of the line |
 
 Every service exposes `GET /metrics` with the same series: `http_requests_total{service,instance_id,method,route,status}`, `http_request_duration_seconds` (histogram), `inflight_requests`, `service_load`. The broker adds `broker_calls_total`, `broker_events_published_total`, `broker_deliveries_total`, `broker_queue_pending`, `broker_dlq_size`, `broker_circuit_state` (0 closed, 1 half-open, 2 open), `broker_reroutes_total`, `broker_active_threads`, `broker_instance_score`.
