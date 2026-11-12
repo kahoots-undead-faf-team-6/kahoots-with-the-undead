@@ -236,11 +236,19 @@ None: every Zombie route is meant for users.
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| crafting-service | – | none | – |
+
+Only players call Crafting (`POST /craft`, the recipe routes, `GET /players/{playerId}/recipes`), so every route stays open. Crafting calls Player, Resource, Exam and World with `Broker.Call`, and publishes `item.crafted`.
 
 ### player-service
 
 | Service | Method | Path | Called by |
 |---|---|---|---|
+| player-service | POST | `/players/{playerId}/inventory` | crafting-service (deliver the crafted item, `grantId` = craftId) |
+| player-service | PATCH | `/players/{playerId}/xp` | game-service (XP stolen by a Tourist Zombie) |
+| player-service | POST | `/players/{playerId}/rewards` | nobody since Lab 4 (Exam's rewards now come from `exam.passed`); kept internal |
+
+`POST /players/{playerId}/inventory/{itemCode}/use` is a player route and stays open. XP from exams, sessions, base upgrades and crafts arrives as events (`exam.passed`, `game.session-ended`, `base.upgraded`, `item.crafted`).
 
 ## 13. Logs download
 
