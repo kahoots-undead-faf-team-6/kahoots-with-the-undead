@@ -55,7 +55,7 @@ x-game: &game
     DB_NAME: ${GAME_DB_NAME}
     SEED_ON_START: "true"
     # Lab 4: calls to other services go through the Message Broker (BROKER_GRPC_URL in *discovery-env)
-    RESOURCE_SERVICE_URL: ""   # built-in mock: Resource has no /resources/steal yet and gather takes "amount" (see README)
+    MOCK_SERVICES: resource   # Lab 4: built-in mock, Resource has no /resources/steal yet and gather takes "amount" (see README)
     WS_TOKEN_SECRET: ${WS_TOKEN_SECRET}
     REQUEST_TIMEOUT_MS: ${SERVICE_REQUEST_TIMEOUT_MS:-5000}
     MAX_CONCURRENT_REQUESTS: ${SERVICE_MAX_CONCURRENT_REQUESTS:-50}
