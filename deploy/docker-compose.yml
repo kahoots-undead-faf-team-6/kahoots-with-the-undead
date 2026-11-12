@@ -300,7 +300,7 @@ services:
 
   # ======================= World Service (Mihai) =======================
   world-service:
-    image: mihaim888/world-service:${WORLD_VERSION:-4.0.0}
+    image: mihaim888/world-service:${WORLD_VERSION:-4.0.1}
     restart: unless-stopped
     deploy:
       replicas: ${WORLD_REPLICAS:-2}
