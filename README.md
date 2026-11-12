@@ -1071,6 +1071,7 @@ Every service exposes `GET /metrics` with the same series: `http_requests_total{
 - **Logs**: log lines/s by level and by service, and the log lines themselves, filtered by `service`, minimum `level`, `requestId` and free text.
 
 **Alert rules** (`deploy/monitoring/prometheus/rules.yml`, visible at localhost:9090/alerts and as "Firing alerts" on the Overview): `InstanceDown` (`up == 0` for 30 s), `HighErrorRate` (> 5% 5xx over 1 min), `HighLoad` (`service_load > 0.7` for 30 s), `DLQNotEmpty`, `CircuitOpen`. Service Discovery's own load alerts still go to Telegram/Discord (Lab 3).
+Check them without the stack: `docker run --rm --entrypoint promtool -v "$PWD/deploy/monitoring/prometheus:/p" -w /p prom/prometheus:v2.55.1 test rules rules.test.yml`.
 
 **Demo in 5 steps**
 1. **Load:** `for i in $(seq 300); do curl -s -o /dev/null -H "Authorization: Bearer $TOKEN" localhost:8080/world/rooms & done; wait`. On **Kahoots Overview** the requests/s rise, both world instances share the traffic, and the load per instance goes up.
