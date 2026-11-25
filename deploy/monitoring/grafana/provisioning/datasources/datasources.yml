@@ -11,3 +11,18 @@ datasources:
     uid: loki
     access: proxy
     url: http://loki:3100
+  # Lab 5: the Data Warehouse (dw-db, schema "dw"), loaded by etl-service. Credentials from the grafana
+  # container's environment (DW_DB_* in deploy/.env).
+  - name: Data Warehouse
+    type: grafana-postgresql-datasource
+    uid: dw
+    access: proxy
+    url: dw-db:5432
+    user: $DW_DB_USER
+    jsonData:
+      database: $DW_DB_NAME
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: $DW_DB_PASSWORD
