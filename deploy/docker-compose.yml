@@ -541,6 +541,55 @@ services:
     ports:
       - "127.0.0.1:5441:5432"
 
+  # ======================= Data Warehouse + ETL (Lab 5, Gabriel) =======================
+  # dw-db holds the star schema "dw" (db-scripts/dw/01-schema.sql). etl-service loads every service DB into it
+  # at startup, every ETL_INTERVAL_S seconds and on POST /etl/run (docs/lab5-contract.md "ETL").
+  # Sources are read from the replicas only: Postgres through the router's read port, Mongo with
+  # readPreference=secondaryPreferred. ETL_PG_READ_PORT stays 5432 until every Postgres has its router
+  # (G3/V1), then it becomes 5433.
+  dw-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DW_DB_USER}
+      POSTGRES_PASSWORD: ${DW_DB_PASSWORD}
+      POSTGRES_DB: ${DW_DB_NAME}
+    volumes:
+      - dw-db-data:/var/lib/postgresql/data
+      - ../db-scripts/dw:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5450:5432"
+
+  etl-service:
+    image: gabriel120405/etl-service:${ETL_VERSION:-5.0.0}
+    restart: unless-stopped
+    volumes: [*logs-volume]
+    environment:
+      <<: *discovery-env
+      PORT: "3040"
+      DW_URL: postgres://${DW_DB_USER}:${DW_DB_PASSWORD}@dw-db:5432/${DW_DB_NAME}
+      ETL_INTERVAL_S: ${ETL_INTERVAL_S:-300}
+      PLAYER_DB_URL: postgres://${PLAYER_DB_USER}:${PLAYER_DB_PASSWORD}@player-db:${ETL_PG_READ_PORT:-5432}/${PLAYER_DB_NAME}
+      CRAFTING_DB_URL: postgres://${CRAFTING_DB_USER}:${CRAFTING_DB_PASSWORD}@crafting-db:${ETL_PG_READ_PORT:-5432}/${CRAFTING_DB_NAME}
+      GAME_DB_URL: postgres://${GAME_DB_USER}:${GAME_DB_PASSWORD}@game-db:${ETL_PG_READ_PORT:-5432}/${GAME_DB_NAME}
+      EXAM_DB_URL: postgres://${EXAM_DB_USER}:${EXAM_DB_PASSWORD}@exam-db:${ETL_PG_READ_PORT:-5432}/${EXAM_DB_NAME}
+      RESOURCE_DB_URL: postgres://${RESOURCE_DB_USER}:${RESOURCE_DB_PASSWORD}@resource-db:${ETL_PG_READ_PORT:-5432}/${RESOURCE_DB_NAME}
+      BASE_DB_URL: postgres://${BASE_DB_USER}:${BASE_DB_PASSWORD}@base-db:${ETL_PG_READ_PORT:-5432}/${BASE_DB_NAME}
+      WORLD_MONGO_URL: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin&readPreference=secondaryPreferred
+      ZOMBIE_MONGO_URL: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin&readPreference=secondaryPreferred
+    depends_on:
+      service-discovery:
+        condition: service_healthy
+      dw-db:
+        condition: service_healthy
+    # admin API for the demo (POST /etl/run, GET /etl/runs); not behind the gateway
+    ports:
+      - "127.0.0.1:3040:3040"
+
   # ======================= Monitoring (Lab 4, Gabriel), profile "monitoring" =======================
   #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile monitoring up -d
   # Prometheus finds every instance through SD GET /prometheus/targets; Promtail ships the shared logs
@@ -583,6 +632,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lab 5: the "Data Warehouse" Postgres datasource of the Analytics dashboard
+      DW_DB_USER: ${DW_DB_USER}
+      DW_DB_PASSWORD: ${DW_DB_PASSWORD}
+      DW_DB_NAME: ${DW_DB_NAME}
     volumes:
       - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./monitoring/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
@@ -606,3 +659,4 @@ volumes:
   base-db-data:
   player-db-data:
   crafting-db-data:
+  dw-db-data:      # Lab 5: the Data Warehouse
