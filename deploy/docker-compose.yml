@@ -138,6 +138,7 @@ services:
       CIRCUIT_BREAKER_THRESHOLD: ${CIRCUIT_BREAKER_THRESHOLD:-3}
       CIRCUIT_BREAKER_WINDOW_MS: ${CIRCUIT_BREAKER_WINDOW_MS:-}
       DISCOVERY_CACHE_MS: ${DISCOVERY_CACHE_MS:-2000}
+      SAGA_TIMEOUT_MS: ${SAGA_TIMEOUT_MS:-60000}   # Lab 5: a saga still running after this is compensated
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8600/health', timeout=2)"]
       interval: 3s
