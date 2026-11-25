@@ -92,7 +92,7 @@ message SagaRequest {
 message SagaRef { string saga_id = 1; }
 message StepState {
   string name    = 1;
-  string status  = 2; // PENDING, RUNNING, SUCCEEDED, FAILED, COMPENSATING, COMPENSATED, SKIPPED
+  string status  = 2; // PENDING, RUNNING, SUCCEEDED, FAILED, COMPENSATING, COMPENSATED, SKIPPED, COMPENSATION_FAILED
   int32 attempts = 3; // calls made for the step (compensation attempts included)
   string error   = 4;
   int32 http_status = 5; // last status code the step answered with
@@ -127,7 +127,7 @@ gRPC status codes:
 - `StartSaga` with no steps, an empty `saga_id`, or a step without `target_service` / `method` / `path` → `INVALID_ARGUMENT`.
 - `StartSaga` with a `saga_id` that already exists → `OK` with the **existing** state; no second saga is started (whatever the new request contains).
 - `GetSaga` for an unknown id → `NOT_FOUND`.
-- `wait = true` and the caller's gRPC deadline runs out first → `DEADLINE_EXCEEDED` for the caller only; the saga goes on, read it with `GetSaga` or wait for the event (§5).
+- `wait = true` and the caller's gRPC deadline comes first → the broker answers just before it with the current state (`RUNNING`); the saga goes on, read it with `GetSaga` or wait for the event (§5).
 
 The Node client (`clients/node`) gets `startSaga(req)` and `getSaga(sagaId)` (Mihai).
 
@@ -143,9 +143,9 @@ The saga is **orchestrated**: the broker runs the steps one by one, stores every
 | `Idempotency-Key` | step: **`{sagaId}:{step}`** · compensation: **`{sagaId}:{step}:compensate`** (`step` = `SagaStep.name`) |
 | Step succeeds | `2xx` → step `SUCCEEDED`, the next step starts |
 | Business failure | `4xx` → **no retry**, saga `COMPENSATING` |
-| Technical failure | no instance, `UNAVAILABLE`, timeout, `5xx` → reroute as in Lab 4 (the key makes it safe); still failing → saga `COMPENSATING` |
+| Technical failure | no instance, `UNAVAILABLE`, timeout, `5xx` → reroute as in Lab 4 (the key makes it safe); still failing → saga `COMPENSATING`. After a timeout or a `5xx` the step **may** have been applied, so its own compensation runs too |
 | Compensation | successful steps, reverse order; a step without `compensation` is `SKIPPED`. All done → saga **`COMPENSATED`** |
-| Compensation fails | retried after 1, 2, 4, 8, 16 s; after `MAX_DELIVERY_ATTEMPTS` (5) it goes to the DLQ with kind **`"saga-compensation"`** and the saga stays **`FAILED`** |
+| Compensation fails | retried with backoff 1, 2, 4, 8 s (`RETRY_BASE_MS`); the `MAX_DELIVERY_ATTEMPTS`-th (5th) failure puts it in the DLQ with kind **`"saga-compensation"`**, the step is `COMPENSATION_FAILED`, the other compensations still run and the saga ends **`FAILED`**. `POST /dlq/{id}/retry` gives it 5 fresh attempts |
 | Compensation impossible | the service answers `409` with the reason → no retry, straight to the DLQ, saga `FAILED` |
 | Timeout | `SAGA_TIMEOUT_MS` (default `60000`) from `StartSaga`; exceeded → compensation, error `"saga timeout"` |
 | Restart | when the broker starts, every saga in `RUNNING` / `COMPENSATING` is resumed from the stored step (the keys make the replayed call safe) |
@@ -153,7 +153,7 @@ The saga is **orchestrated**: the broker runs the steps one by one, stores every
 | `result` | the body of the last successful step, on `COMPLETED` |
 
 Saga status: `RUNNING` → `COMPLETED`, or `RUNNING` → `COMPENSATING` → `COMPENSATED` / `FAILED`.
-Step status: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `COMPENSATING`, `COMPENSATED`, `SKIPPED`.
+Step status: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `COMPENSATING`, `COMPENSATED`, `SKIPPED` (no compensation), `COMPENSATION_FAILED`.
 
 ## 4. Every service in a saga
 
@@ -207,7 +207,7 @@ Both services subscribe to both topics and **filter on `initiator`**. A saga tha
 | GET | `/sagas?status=&type=` | the sagas, newest first, filtered |
 | GET | `/sagas/{id}` | one saga with the step journal: time, attempts, HTTP status, error, for every step and compensation |
 
-Prometheus: `saga_total{type,outcome}` (`outcome` = `completed`, `compensated`, `failed`), `saga_duration_seconds{type}` (histogram), `saga_in_flight`. One **Sagas** panel in the Grafana **Broker** dashboard.
+Prometheus: `saga_total{type,outcome}` (`outcome` = `completed`, `compensated`, `failed`), `saga_duration_seconds{type}` (histogram), `saga_in_flight`. `/status` adds `sagasInFlight`. One **Sagas** panel in the Grafana **Broker** dashboard.
 
 ## 7. Cache
 
