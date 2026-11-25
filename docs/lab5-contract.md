@@ -231,6 +231,8 @@ Prometheus: `saga_total{type,outcome}` (`outcome` = `completed`, `compensated`, 
 
 Services keep their DSN on the router (`<db>:5432`), so the code does not change for failover.
 
+Template and router: `deploy/postgres/` (Vladlen, #61). Host ports of the routers' `/status` (container port `8008`): resource **8008**, base **8009**, game **8010**, exam **8011**; player and crafting take **8012** and **8013**.
+
 ## 9. ETL and Data Warehouse
 
 Each owner writes `etl-service/src/extract/<service>.ts`:
