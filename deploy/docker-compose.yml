@@ -266,22 +266,63 @@ services:
       default:
         aliases: [game-service]
 
+  # game-db: the router + three nodes (Lab 5, deploy/postgres/README.md)
   game-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    <<: *pg-router
     environment:
+      ROUTER_NAME: game-db
+      PG_NODES: game-db-1:5432,game-db-2:5432,game-db-3:5432
+      PG_REPL_PASSWORD: ${GAME_PG_REPL_PASSWORD}
+      PG_FAILOVER_CHECKS: ${PG_FAILOVER_CHECKS:-3}
+      PG_CHECK_INTERVAL_MS: ${PG_CHECK_INTERVAL_MS:-2000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
+    ports:
+      - "127.0.0.1:5433:5432"   # the primary, for local tests (as before Lab 5)
+      - "127.0.0.1:8010:8008"   # /status and /metrics, for the demo
+
+  game-db-1:
+    <<: *pg-node
+    environment: &game-db-env
       POSTGRES_USER: ${GAME_DB_USER}
       POSTGRES_PASSWORD: ${GAME_DB_PASSWORD}
       POSTGRES_DB: ${GAME_DB_NAME}
+      PG_NODES: game-db-1:5432,game-db-2:5432,game-db-3:5432
+      PG_REPL_PASSWORD: ${GAME_PG_REPL_PASSWORD}
+      PG_NODE_NAME: game-db-1
+      PG_INITIAL_PRIMARY: "true"
     volumes:
-      - game-db-data:/var/lib/postgresql/data
-      - ../db-scripts/game-service:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 3s
-      retries: 20
-    ports:
-      - "127.0.0.1:5433:5432"
+      - game-db-1-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/game-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/game-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  game-db-2:
+    <<: *pg-node
+    environment:
+      <<: *game-db-env
+      PG_NODE_NAME: game-db-2
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - game-db-2-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/game-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/game-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  game-db-3:
+    <<: *pg-node
+    environment:
+      <<: *game-db-env
+      PG_NODE_NAME: game-db-3
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - game-db-3-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/game-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/game-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
 
   # ======================= Exam Service (Alexandru) =======================
   exam-service:
@@ -311,22 +352,63 @@ services:
         condition: service_healthy
     # no published port: reach it through the gateway at /exam
 
+  # exam-db: the router + three nodes (Lab 5, deploy/postgres/README.md)
   exam-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    <<: *pg-router
     environment:
+      ROUTER_NAME: exam-db
+      PG_NODES: exam-db-1:5432,exam-db-2:5432,exam-db-3:5432
+      PG_REPL_PASSWORD: ${EXAM_PG_REPL_PASSWORD}
+      PG_FAILOVER_CHECKS: ${PG_FAILOVER_CHECKS:-3}
+      PG_CHECK_INTERVAL_MS: ${PG_CHECK_INTERVAL_MS:-2000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
+    ports:
+      - "127.0.0.1:5434:5432"   # the primary, for local tests (as before Lab 5)
+      - "127.0.0.1:8011:8008"   # /status and /metrics, for the demo
+
+  exam-db-1:
+    <<: *pg-node
+    environment: &exam-db-env
       POSTGRES_USER: ${EXAM_DB_USER}
       POSTGRES_PASSWORD: ${EXAM_DB_PASSWORD}
       POSTGRES_DB: ${EXAM_DB_NAME}
+      PG_NODES: exam-db-1:5432,exam-db-2:5432,exam-db-3:5432
+      PG_REPL_PASSWORD: ${EXAM_PG_REPL_PASSWORD}
+      PG_NODE_NAME: exam-db-1
+      PG_INITIAL_PRIMARY: "true"
     volumes:
-      - exam-db-data:/var/lib/postgresql/data
-      - ../db-scripts/exam-service:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 3s
-      retries: 20
-    ports:
-      - "127.0.0.1:5434:5432"
+      - exam-db-1-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/exam-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/exam-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  exam-db-2:
+    <<: *pg-node
+    environment:
+      <<: *exam-db-env
+      PG_NODE_NAME: exam-db-2
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - exam-db-2-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/exam-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/exam-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  exam-db-3:
+    <<: *pg-node
+    environment:
+      <<: *exam-db-env
+      PG_NODE_NAME: exam-db-3
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - exam-db-3-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+      - ../db-scripts/exam-service/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../db-scripts/exam-service/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
 
   # ======================= World Service (Mihai) =======================
   world-service:
@@ -702,8 +784,12 @@ volumes:
   prometheus-data:
   loki-data:
   grafana-data:
-  game-db-data:
-  exam-db-data:
+  game-db-1-data:
+  game-db-2-data:
+  game-db-3-data:
+  exam-db-1-data:
+  exam-db-2-data:
+  exam-db-3-data:
   world-mongo-data:
   zombie-mongo-data:
   resource-db-1-data:

@@ -1031,8 +1031,8 @@ Track lab tasks on the linked [GitHub Project](#).
 | Service | Reached at | Database | Seed data |
 |---|---|---|---|
 | **API Gateway** | **`localhost:8080`** (clients only; Lab 4 removed the internal `8081` listener) | none | – |
-| Game Service | `localhost:8080/game`; `localhost:3101`–`3103` (one per instance) only for the WebSocket | PostgreSQL 16 (`game-db`, host port 5433) | `db-scripts/game-service/` |
-| Exam Service | `localhost:8080/exam` | PostgreSQL 16 (`exam-db`, host port 5434) | `db-scripts/exam-service/` |
+| Game Service | `localhost:8080/game`; `localhost:3101`–`3103` (one per instance) only for the WebSocket | PostgreSQL 16, replicated: `game-db-1..3` behind the pg-router `game-db` (host port 5433, `/status` on 8010) | `db-scripts/game-service/` |
+| Exam Service | `localhost:8080/exam` | PostgreSQL 16, replicated: `exam-db-1..3` behind the pg-router `exam-db` (host port 5434, `/status` on 8011) | `db-scripts/exam-service/` |
 | World Service | `localhost:8080/world` | MongoDB 7 (`world-mongo`, host port 27011) | `db-scripts/world-service/` |
 | Zombie Service | `localhost:8080/zombie` | MongoDB 7 (`zombie-mongo`, host port 27012) | `db-scripts/zombie-service/` |
 | Resource Service | `localhost:8080/resource` | PostgreSQL 16 (`resource-db`) | `db-scripts/resource-service/` |
