@@ -352,7 +352,7 @@ services:
 
   # ======================= World Service (Mihai) =======================
   world-service:
-    image: mihaim888/world-service:${WORLD_VERSION:-4.0.1}
+    image: mihaim888/world-service:${WORLD_VERSION:-5.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${WORLD_REPLICAS:-2}
@@ -425,7 +425,7 @@ services:
 
   # ======================= Zombie Service (Mihai) =======================
   zombie-service:
-    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-4.0.0}
+    image: mihaim888/zombie-service:${ZOMBIE_VERSION:-5.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${ZOMBIE_REPLICAS:-2}
