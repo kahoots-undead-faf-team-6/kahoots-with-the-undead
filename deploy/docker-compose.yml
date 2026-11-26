@@ -538,7 +538,7 @@ services:
 
   # ======================= Resource Service (Vladlen) =======================
   resource-service:
-    image: mituvladlen/resource-service:${RESOURCE_VERSION:-4.0.0}
+    image: mituvladlen/resource-service:${RESOURCE_VERSION:-5.0.0}
     restart: unless-stopped
     deploy:
       replicas: ${RESOURCE_REPLICAS:-2}
@@ -617,7 +617,7 @@ services:
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
-    image: mituvladlen/base-service:${BASE_VERSION:-4.0.0}   # published by base-service CI (Vladlen's DockerHub secrets)
+    image: mituvladlen/base-service:${BASE_VERSION:-5.0.0}   # published by base-service CI (Vladlen's DockerHub secrets)
     restart: unless-stopped
     deploy:
       replicas: ${BASE_REPLICAS:-2}
