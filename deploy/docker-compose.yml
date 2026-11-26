@@ -38,6 +38,43 @@ x-discovery-env: &discovery-env
 # Lab 4: the shared log volume, mounted in every service, the gateway, SD and the broker.
 x-logs-volume: &logs-volume logs:/var/log/kahoots
 
+# Lab 5 (Mihai): the gateway's cache, 3 Valkey nodes. The gateway places every key with its own
+# consistent hashing ring (services/gateway/app/cache/ring.py, docs/lab5/consistent-hashing.md); the
+# nodes know nothing of each other, keep nothing on disk and evict the least recently used keys.
+x-cache-node: &cache-node
+  image: valkey/valkey:8.0
+  restart: unless-stopped
+  command: ["valkey-server", "--save", "", "--appendonly", "no",
+            "--maxmemory", "${CACHE_NODE_MAXMEMORY:-64mb}", "--maxmemory-policy", "allkeys-lru"]
+  healthcheck:
+    test: ["CMD", "valkey-cli", "ping"]
+    interval: 5s
+    retries: 10
+
+# Lab 5 (Mihai): World and Zombie keep their data in a 3-member MongoDB replica set each
+# (docs/lab5-contract.md §8, docs/lab5/mongo-replica-sets.md). Authentication is on, so the members
+# prove to each other who they are with a shared keyFile (mongo-keyfile creates it once).
+# Member 1 is the only one that creates the root user; members 2 and 3 copy everything from the
+# PRIMARY when they join (initial sync). <db>-mongo-init runs rs.initiate() once and waits for a
+# PRIMARY; the services start after it. The driver follows the PRIMARY through elections.
+x-mongo-member: &mongo-member
+  image: mongo:7
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ ping: 1 }).ok"]
+    interval: 5s
+    retries: 20
+  depends_on:
+    mongo-keyfile:
+      condition: service_completed_successfully
+
+x-mongo-init: &mongo-init
+  image: mongo:7
+  restart: "no"
+  volumes:
+    - ./mongo/init-replica-set.sh:/init-replica-set.sh:ro
+  entrypoint: ["bash", "/init-replica-set.sh"]
+
 # Game runs as three explicit services (game-service-1/2/3) built from this anchor, because each
 # instance needs its own host port for the direct WebSocket. A service that redefines
 # environment: replaces the whole map, so each instance merges *game-env and *discovery-env.
@@ -171,6 +208,11 @@ services:
       # Lab 4: /<name>/... -> Broker.Call to the "<name>-service" queue. Internal routes answer 404
       # (docs/lab4-contract.md section 12); BLOCKED_ROUTES adds more.
       BLOCKED_ROUTES: ${BLOCKED_ROUTES:-}
+      # Lab 5: the cache (docs/lab5-contract.md §7). A missing node never fails a request.
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      CACHE_NODES: cache-1:6379,cache-2:6379,cache-3:6379
+      CACHE_VNODES: ${CACHE_VNODES:-160}
+      CACHE_DEFAULT_TTL_S: ${CACHE_DEFAULT_TTL_S:-60}
     depends_on:
       service-discovery:
         condition: service_healthy
@@ -198,6 +240,16 @@ services:
         condition: service_started
     ports:
       - "8080:8080"
+
+  # ======================= Cache (Lab 5, Mihai): 3 Valkey nodes =======================
+  # No depends_on from the gateway: it starts and works without them (every GET is then BYPASS).
+  # Demo: docker compose stop cache-2  ->  GET /admin/cache/ring shows it out of the ring.
+  cache-1:
+    <<: *cache-node
+  cache-2:
+    <<: *cache-node
+  cache-3:
+    <<: *cache-node
 
   # ======================= Game Service (Alexandru): 3 instances =======================
   game-service-1:
@@ -310,7 +362,8 @@ services:
       <<: *discovery-env
       PORT: "3011"
       STORAGE: mongo
-      MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo:27017/world?authSource=admin
+      # Lab 5: the replica set world-rs; the driver finds the PRIMARY and follows it through elections
+      MONGO_URI: mongodb://${WORLD_MONGO_USER}:${WORLD_MONGO_PASSWORD}@world-mongo-1:27017,world-mongo-2:27017,world-mongo-3:27017/world?authSource=admin&replicaSet=world-rs&readPreference=primaryPreferred&retryWrites=true
       MONGO_DB: world
       SEED_ON_START: "true"
       # Lab 4: subscribes to exam.passed and resource.depleted, publishes world.wing-unlocked
@@ -320,20 +373,55 @@ services:
     depends_on:
       service-discovery:
         condition: service_healthy
-      world-mongo:
-        condition: service_started
+      world-mongo-init:
+        condition: service_completed_successfully
     # no published port: reach it through the gateway at /world
 
-  world-mongo:
-    image: mongo:7
-    restart: unless-stopped
+  # Lab 5: replica set world-rs, 3 members (x-mongo-member above)
+  world-mongo-1:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "world-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${WORLD_MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${WORLD_MONGO_PASSWORD}
     volumes:
-      - world-mongo-data:/data/db
+      - world-mongo-1-data:/data/db
+      - mongo-keys:/keys:ro
+    networks:
+      default:
+        aliases: [world-mongo]   # the Lab 4 host name, for clients that still use it
     ports:
       - "127.0.0.1:27011:27017"
+  world-mongo-2:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "world-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
+    volumes:
+      - world-mongo-2-data:/data/db
+      - mongo-keys:/keys:ro
+    ports:
+      - "127.0.0.1:27013:27017"
+  world-mongo-3:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "world-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
+    volumes:
+      - world-mongo-3-data:/data/db
+      - mongo-keys:/keys:ro
+    ports:
+      - "127.0.0.1:27014:27017"
+  world-mongo-init:
+    <<: *mongo-init
+    environment:
+      RS_NAME: world-rs
+      RS_MEMBERS: world-mongo-1:27017,world-mongo-2:27017,world-mongo-3:27017
+      MONGO_USER: ${WORLD_MONGO_USER}
+      MONGO_PASSWORD: ${WORLD_MONGO_PASSWORD}
+    depends_on:
+      world-mongo-1:
+        condition: service_healthy
+      world-mongo-2:
+        condition: service_healthy
+      world-mongo-3:
+        condition: service_healthy
 
   # ======================= Zombie Service (Mihai) =======================
   zombie-service:
@@ -347,7 +435,8 @@ services:
       <<: *discovery-env
       PORT: "3012"
       STORAGE: mongo
-      MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo:27017/zombie?authSource=admin
+      # Lab 5: the replica set zombie-rs; the driver finds the PRIMARY and follows it through elections
+      MONGO_URI: mongodb://${ZOMBIE_MONGO_USER}:${ZOMBIE_MONGO_PASSWORD}@zombie-mongo-1:27017,zombie-mongo-2:27017,zombie-mongo-3:27017/zombie?authSource=admin&replicaSet=zombie-rs&readPreference=primaryPreferred&retryWrites=true
       MONGO_DB: zombie
       SEED_ON_START: "true"
       # Lab 4: publishes zombie.type-changed
@@ -357,20 +446,65 @@ services:
     depends_on:
       service-discovery:
         condition: service_healthy
-      zombie-mongo:
-        condition: service_started
+      zombie-mongo-init:
+        condition: service_completed_successfully
     # no published port: reach it through the gateway at /zombie
 
-  zombie-mongo:
-    image: mongo:7
-    restart: unless-stopped
+  # Lab 5: replica set zombie-rs, 3 members (x-mongo-member above)
+  zombie-mongo-1:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "zombie-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${ZOMBIE_MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${ZOMBIE_MONGO_PASSWORD}
     volumes:
-      - zombie-mongo-data:/data/db
+      - zombie-mongo-1-data:/data/db
+      - mongo-keys:/keys:ro
+    networks:
+      default:
+        aliases: [zombie-mongo]   # the Lab 4 host name, for clients that still use it
     ports:
       - "127.0.0.1:27012:27017"
+  zombie-mongo-2:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "zombie-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
+    volumes:
+      - zombie-mongo-2-data:/data/db
+      - mongo-keys:/keys:ro
+    ports:
+      - "127.0.0.1:27015:27017"
+  zombie-mongo-3:
+    <<: *mongo-member
+    command: ["mongod", "--replSet", "zombie-rs", "--keyFile", "/keys/mongo.key", "--bind_ip_all"]
+    volumes:
+      - zombie-mongo-3-data:/data/db
+      - mongo-keys:/keys:ro
+    ports:
+      - "127.0.0.1:27016:27017"
+  zombie-mongo-init:
+    <<: *mongo-init
+    environment:
+      RS_NAME: zombie-rs
+      RS_MEMBERS: zombie-mongo-1:27017,zombie-mongo-2:27017,zombie-mongo-3:27017
+      MONGO_USER: ${ZOMBIE_MONGO_USER}
+      MONGO_PASSWORD: ${ZOMBIE_MONGO_PASSWORD}
+    depends_on:
+      zombie-mongo-1:
+        condition: service_healthy
+      zombie-mongo-2:
+        condition: service_healthy
+      zombie-mongo-3:
+        condition: service_healthy
+
+  # Lab 5: the keyFile the members of both replica sets authenticate each other with. Created once in
+  # the mongo-keys volume (random, never in git), owned by mongod's user (999) and readable only by it.
+  mongo-keyfile:
+    image: mongo:7
+    restart: "no"
+    user: root
+    volumes:
+      - mongo-keys:/keys
+    entrypoint: ["bash", "-c", "[ -s /keys/mongo.key ] || head -c 756 /dev/urandom | base64 -w 0 > /keys/mongo.key; chown 999:999 /keys/mongo.key; chmod 400 /keys/mongo.key"]
 
   # ======================= Resource Service (Vladlen) =======================
   resource-service:
@@ -600,8 +734,13 @@ volumes:
   grafana-data:
   game-db-data:
   exam-db-data:
-  world-mongo-data:
-  zombie-mongo-data:
+  world-mongo-1-data:    # Lab 5: replica set world-rs
+  world-mongo-2-data:
+  world-mongo-3-data:
+  zombie-mongo-1-data:   # Lab 5: replica set zombie-rs
+  zombie-mongo-2-data:
+  zombie-mongo-3-data:
+  mongo-keys:            # Lab 5: the replica sets' keyFile
   resource-db-data:
   base-db-data:
   player-db-data:
