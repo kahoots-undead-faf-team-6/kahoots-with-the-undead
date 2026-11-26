@@ -1,0 +1,724 @@
+{
+  "uid": "kahoots-analytics",
+  "title": "Kahoots Analytics",
+  "description": "Lab 5: game analytics from the Data Warehouse (dw-db), loaded by etl-service from all 8 service databases.",
+  "tags": [
+    "kahoots",
+    "lab5"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Kahoots dashboards",
+      "type": "dashboards",
+      "tags": [
+        "kahoots"
+      ],
+      "asDropdown": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Data Warehouse (Lab 5): filled by etl-service from the 8 service databases",
+      "collapsed": false,
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Players",
+      "description": "dw.dim_player (player-db)",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS players FROM dw.dim_player",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Exam attempts",
+      "description": "dw.fact_exam_attempt (exam-db)",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS attempts FROM dw.fact_exam_attempt",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Crafts",
+      "description": "dw.fact_craft (crafting-db)",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS crafts FROM dw.fact_craft",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Resources gathered",
+      "description": "dw.fact_resource_op (resource-db)",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(quantity), 0) AS gathered FROM dw.fact_resource_op WHERE op = 'gather'",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last ETL run",
+      "description": "SUCCESS: every source loaded. PARTIAL: at least one source failed (see GET :3040/etl/runs).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "SUCCESS": {
+                  "color": "green",
+                  "index": 0
+                },
+                "PARTIAL": {
+                  "color": "orange",
+                  "index": 1
+                },
+                "FAILED": {
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT status FROM dw.etl_runs WHERE status <> 'RUNNING' ORDER BY run_id DESC LIMIT 1",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 6,
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last successful ETL",
+      "description": "dw.etl_runs",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT max(finished_at) AS time FROM dw.etl_runs WHERE status = 'SUCCESS'",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Exam pass rate per course",
+      "description": "Passed / finished attempts per course (in_progress and abandoned are left out). dw.fact_exam_attempt",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {
+            "mode": "continuous-RdYlGr"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 30
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(course_name, course_id) AS course,\n       round(100.0 * avg(passed::int), 1) AS \"pass rate\",\n       count(*) AS attempts\n  FROM dw.fact_exam_attempt\n WHERE status IN ('passed', 'failed')\n GROUP BY 1\n ORDER BY 2 DESC",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Crafts per day",
+      "description": "Crafts started per day, by result (COMPLETED / FAILED / PENDING). dw.fact_craft joined with dw.dim_date",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "COMPLETED"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "FAILED"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PENDING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT d.date::timestamptz AS time,\n       count(*) FILTER (WHERE f.status = 'COMPLETED') AS \"COMPLETED\",\n       count(*) FILTER (WHERE f.status = 'FAILED') AS \"FAILED\",\n       count(*) FILTER (WHERE f.status = 'PENDING') AS \"PENDING\"\n  FROM dw.fact_craft f JOIN dw.dim_date d ON d.date_key = f.date_key\n WHERE $__timeFilter(d.date::timestamptz)\n GROUP BY 1\n ORDER BY 1",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Resources gathered per type",
+      "description": "Total quantity gathered per resource type (and consumed, for comparison). dw.fact_resource_op + dw.dim_resource_type",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gathered"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "consumed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        },
+        "groupWidth": 0.7
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(t.name, f.resource_type_id) AS resource,\n       COALESCE(sum(f.quantity) FILTER (WHERE f.op = 'gather'), 0) AS gathered,\n       COALESCE(sum(f.quantity) FILTER (WHERE f.op = 'consume'), 0) AS consumed\n  FROM dw.fact_resource_op f\n  LEFT JOIN dw.dim_resource_type t ON t.source_id = f.resource_type_id\n GROUP BY 1\n ORDER BY 2 DESC",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Top 10 players",
+      "description": "By XP, with their crafts, passed exams and resources gathered. dw.dim_player + facts",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "xp"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT p.display_name AS player, p.username, p.level, p.xp,\n       (SELECT count(*) FROM dw.fact_craft c WHERE c.player_id = p.source_id AND c.status = 'COMPLETED') AS crafts,\n       (SELECT count(*) FROM dw.fact_exam_attempt e WHERE e.player_id = p.source_id AND e.passed) AS \"exams passed\",\n       (SELECT COALESCE(sum(quantity), 0) FROM dw.fact_resource_op r WHERE r.player_id = p.source_id AND r.op = 'gather') AS gathered\n  FROM dw.dim_player p\n ORDER BY p.xp DESC, crafts DESC\n LIMIT 10",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    },
+    {
+      "type": "table",
+      "title": "ETL runs",
+      "description": "The last runs of etl-service (dw.etl_runs): status, duration, rows loaded per source and errors",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": {
+                        "color": "green"
+                      },
+                      "PARTIAL": {
+                        "color": "orange"
+                      },
+                      "FAILED": {
+                        "color": "red"
+                      },
+                      "RUNNING": {
+                        "color": "blue"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT run_id, trigger, status, started_at, duration_ms,\n       (SELECT COALESCE(sum(value::int), 0) FROM jsonb_each_text(rows_loaded)) AS rows,\n       rows_loaded::text AS \"rows per source\", errors::text AS errors\n  FROM dw.etl_runs\n ORDER BY run_id DESC\n LIMIT 20",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dw"
+          },
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dw"
+      }
+    }
+  ]
+}
