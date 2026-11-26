@@ -1,6 +1,7 @@
 # Lab 5: pg-router (deploy/postgres/pg-router). Tests on every PR that touches deploy/postgres; on a merge to
-# main, pushes <user>/pg-router:<VERSION> and :latest (amd64 + arm64) to DockerHub.
-# Repository secrets needed: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN (a DockerHub access token).
+# main, pushes mituvladlen/pg-router:<VERSION> and :latest (amd64 + arm64) to DockerHub.
+# Token: the repository secret DOCKERHUB_TOKEN, else the organization secret MITUVLADLEN
+# (Vladlen's DockerHub access token, Read & Write).
 name: pg-router
 
 on:
@@ -11,6 +12,9 @@ on:
     branches: [main]
     paths: ["deploy/postgres/**", ".github/workflows/pg-router.yml"]
   workflow_dispatch:
+
+env:
+  DOCKERHUB_USER: mituvladlen
 
 defaults:
   run:
@@ -37,13 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check DockerHub secrets
+      - name: Check the DockerHub token
         env:
-          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN || secrets.MITUVLADLEN }}
         run: |
-          if [ -z "$USERNAME" ] || [ -z "$TOKEN" ]; then
-            echo "::error::Add the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (Settings > Secrets and variables > Actions)."
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Add the secret DOCKERHUB_TOKEN (or the organization secret MITUVLADLEN) with a DockerHub access token."
             exit 1
           fi
       - name: Read version
@@ -53,8 +56,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN || secrets.MITUVLADLEN }}
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -62,7 +65,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/pg-router:${{ steps.version.outputs.version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/pg-router:latest
+            ${{ env.DOCKERHUB_USER }}/pg-router:${{ steps.version.outputs.version }}
+            ${{ env.DOCKERHUB_USER }}/pg-router:latest
       - name: Summary
-        run: echo "Pushed pg-router:${{ steps.version.outputs.version }} and :latest" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Pushed ${{ env.DOCKERHUB_USER }}/pg-router:${{ steps.version.outputs.version }} and :latest" >> "$GITHUB_STEP_SUMMARY"
