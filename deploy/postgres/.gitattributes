@@ -1,0 +1,2 @@
+# The node scripts run inside Linux containers: keep LF even on a Windows checkout.
+*.sh text eol=lf

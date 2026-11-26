@@ -105,6 +105,36 @@ x-game: &game
     game-db:
       condition: service_healthy
 
+# Lab 5: replicated PostgreSQL (deploy/postgres/README.md). Every replicated database has three nodes,
+# <db>-1 (the primary at the first start), <db>-2 and <db>-3 (standbys cloned with pg_basebackup,
+# streaming replication), and a pg-router container named like the old database (<db>), so the services
+# keep their DATABASE_URL: port 5432 goes to the current primary, 5433 to the standbys (reads, ETL),
+# 8008 serves /status and /metrics. The router promotes a standby when the primary fails
+# PG_FAILOVER_CHECKS checks in a row. Each node merges its database's environment.
+x-pg-node: &pg-node
+  image: postgres:16-alpine
+  restart: unless-stopped
+  entrypoint: ["sh", "/pg/standby-entrypoint.sh"]
+  command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10",
+            "-c", "max_replication_slots=10", "-c", "hot_standby=on"]
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+    interval: 3s
+    retries: 30
+
+x-pg-router: &pg-router
+  image: mituvladlen/pg-router:${PG_ROUTER_VERSION:-5.0.0}
+  restart: unless-stopped
+  volumes: [*logs-volume]
+  healthcheck:   # healthy once it knows the primary
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=2)"]
+    interval: 2s
+    timeout: 3s
+    retries: 60
+  depends_on:
+    logs-init:
+      condition: service_completed_successfully
+
 services:
   # ======================= Shared log volume (Lab 4) =======================
   # A new named volume belongs to root, and most images run as another user (node, gateway, ...).
@@ -534,19 +564,56 @@ services:
         condition: service_healthy
     # no published port: reach it through the gateway at /resource
 
+  # resource-db: the router + three nodes (Lab 5, deploy/postgres/README.md)
   resource-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    <<: *pg-router
     environment:
+      ROUTER_NAME: resource-db
+      PG_NODES: resource-db-1:5432,resource-db-2:5432,resource-db-3:5432
+      PG_REPL_PASSWORD: ${RESOURCE_PG_REPL_PASSWORD}
+      PG_FAILOVER_CHECKS: ${PG_FAILOVER_CHECKS:-3}
+      PG_CHECK_INTERVAL_MS: ${PG_CHECK_INTERVAL_MS:-2000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
+    ports:
+      - "127.0.0.1:8008:8008"   # /status and /metrics, for the demo
+
+  resource-db-1:
+    <<: *pg-node
+    environment: &resource-db-env
       POSTGRES_USER: ${RESOURCE_DB_USER}
       POSTGRES_PASSWORD: ${RESOURCE_DB_PASSWORD}
       POSTGRES_DB: ${RESOURCE_DB_NAME}
+      PG_NODES: resource-db-1:5432,resource-db-2:5432,resource-db-3:5432
+      PG_REPL_PASSWORD: ${RESOURCE_PG_REPL_PASSWORD}
+      PG_NODE_NAME: resource-db-1
+      PG_INITIAL_PRIMARY: "true"
     volumes:
-      - resource-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      retries: 10
+      - resource-db-1-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+
+  resource-db-2:
+    <<: *pg-node
+    environment:
+      <<: *resource-db-env
+      PG_NODE_NAME: resource-db-2
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - resource-db-2-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+
+  resource-db-3:
+    <<: *pg-node
+    environment:
+      <<: *resource-db-env
+      PG_NODE_NAME: resource-db-3
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - resource-db-3-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
 
   # ======================= Base Service (Vladlen) =======================
   base-service:
@@ -574,19 +641,56 @@ services:
         condition: service_started
     # no published port: reach it through the gateway at /base
 
+  # base-db: the router + three nodes (Lab 5, deploy/postgres/README.md)
   base-db:
-    image: postgres:16-alpine
-    restart: unless-stopped
+    <<: *pg-router
     environment:
+      ROUTER_NAME: base-db
+      PG_NODES: base-db-1:5432,base-db-2:5432,base-db-3:5432
+      PG_REPL_PASSWORD: ${BASE_PG_REPL_PASSWORD}
+      PG_FAILOVER_CHECKS: ${PG_FAILOVER_CHECKS:-3}
+      PG_CHECK_INTERVAL_MS: ${PG_CHECK_INTERVAL_MS:-2000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /var/log/kahoots
+    ports:
+      - "127.0.0.1:8009:8008"   # /status and /metrics, for the demo
+
+  base-db-1:
+    <<: *pg-node
+    environment: &base-db-env
       POSTGRES_USER: ${BASE_DB_USER}
       POSTGRES_PASSWORD: ${BASE_DB_PASSWORD}
       POSTGRES_DB: ${BASE_DB_NAME}
+      PG_NODES: base-db-1:5432,base-db-2:5432,base-db-3:5432
+      PG_REPL_PASSWORD: ${BASE_PG_REPL_PASSWORD}
+      PG_NODE_NAME: base-db-1
+      PG_INITIAL_PRIMARY: "true"
     volumes:
-      - base-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      retries: 10
+      - base-db-1-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+
+  base-db-2:
+    <<: *pg-node
+    environment:
+      <<: *base-db-env
+      PG_NODE_NAME: base-db-2
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - base-db-2-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
+
+  base-db-3:
+    <<: *pg-node
+    environment:
+      <<: *base-db-env
+      PG_NODE_NAME: base-db-3
+      PG_INITIAL_PRIMARY: "false"
+    volumes:
+      - base-db-3-data:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/pg/standby-entrypoint.sh:ro
+      - ./postgres/init-replication.sh:/docker-entrypoint-initdb.d/00-replication.sh:ro
 
   # ======================= Player Service (Gabriel) =======================
   player-service:
@@ -741,7 +845,11 @@ volumes:
   zombie-mongo-2-data:
   zombie-mongo-3-data:
   mongo-keys:            # Lab 5: the replica sets' keyFile
-  resource-db-data:
-  base-db-data:
+  resource-db-1-data:
+  resource-db-2-data:
+  resource-db-3-data:
+  base-db-1-data:
+  base-db-2-data:
+  base-db-3-data:
   player-db-data:
   crafting-db-data:
