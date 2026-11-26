@@ -35,67 +35,93 @@ a distinct slice of state and behavior.
  
 ## 3. Architecture Diagram
 
-**Lab 4.** Every request between components goes through the **Message Broker** over gRPC.
-- **Requests.** The gateway checks the client (JWT, limits) and hands each request to the broker with `Broker.Call`, naming the service. The broker picks one instance of that service and calls its `Endpoint.Handle`. It balances by load, runs a circuit breaker per instance and reroutes a failed request to another instance. Services call each other the same way.
-- **Events.** Services publish them to **topics** with `Broker.Publish`. The broker stores each event in SQLite before it answers, then delivers it once to every service that subscribed to the topic, to one of its instances (`Endpoint.Deliver`), with retries and a dead letter channel.
-- **Direct traffic.** The only connection that does not go through the broker is the live WebSocket to Game, which the gateway negotiates and the client opens directly.
+**Lab 5** adds data management to the Lab 4 system: no database is a single container any more, cached reads, a data warehouse, and distributed transactions as sagas.
+- **Replicated databases.** Every database runs on three nodes. A PostgreSQL database is a primary and two streaming standbys behind a **pg-router** named like the old database, so the services keep their `DATABASE_URL`. The router sends writes (5432) to the primary, reads (5433) to the standbys, and promotes a standby when the primary stops ([`deploy/postgres/README.md`](./deploy/postgres/README.md)). The two MongoDB databases are replica sets.
+- **Cache.** The gateway caches GET responses and authentication data in **three Valkey nodes**, sharded with its own **consistent hashing ring** (`X-Cache: HIT | MISS | BYPASS`). A successful write through the gateway invalidates that service's entries.
+- **Data warehouse.** **etl-service** extracts the changed rows of every database **from the replicas** (5433, Mongo `secondaryPreferred`) every 5 minutes into **dw-db**, a star schema shown by Grafana's Analytics dashboard.
+- **Sagas.** An operation that writes to two databases (craft, base upgrade) is a **saga** run by a coordinator in the Message Broker: idempotent steps in order, and their compensations in reverse order when a step fails, with the saga's state saved in SQLite at every step.
 
-The rules are in [`docs/lab4-contract.md`](./docs/lab4-contract.md). Lab 3's rules (Service Discovery, `/status`, logs) still apply: [`docs/lab3-contract.md`](./docs/lab3-contract.md).
+Lab 4 stays underneath: every request between components goes through the **Message Broker** over gRPC (`Broker.Call` to a queue per service, `Broker.Publish` to topics), except the live WebSocket to Game. The rules are in [`docs/lab5-contract.md`](./docs/lab5-contract.md), [`docs/lab4-contract.md`](./docs/lab4-contract.md) and [`docs/lab3-contract.md`](./docs/lab3-contract.md).
 
 ```mermaid
 graph TD
     Client([Client / Postman])
-    Gateway{{API Gateway ×1<br/>Python · FastAPI · :8080<br/>JWT auth · limits · /admin/logs/download}}
+    Gateway{{API Gateway ×1 · Python · FastAPI · :8080<br/>JWT auth · limits · POST /ws/negotiate<br/>cache: consistent hashing ring · /admin/logs/download}}
+
+    subgraph Cache["Cache · Valkey ×3, sharded by the gateway's ring"]
+        V1[(cache-1)]
+        V2[(cache-2)]
+        V3[(cache-3)]
+    end
 
     subgraph BrokerBox["Message Broker · Python 3.12 · grpcio + FastAPI"]
-        Broker{{message-broker<br/>gRPC :50051 · admin :8600<br/>one queue per service + per topic<br/>least-load LB · circuit breaker · reroute<br/>Thread-per-Request}}
-        Store[(SQLite on broker-data<br/>durable queues + dead letter channel)]
+        Broker{{message-broker · gRPC :50051 · admin :8600<br/>one queue per service + per topic<br/>least-load LB · circuit breaker · reroute<br/>Thread-per-Request}}
+        Saga{{saga coordinator<br/>craft · base-upgrade<br/>steps in order, compensations in reverse}}
+        Store[(SQLite on broker-data<br/>durable queues · dead letter channel<br/>saga state at every step)]
     end
 
     SD[(Service Discovery · :8500<br/>registry · topics · health checks<br/>quarantine · /prometheus/targets)]
     Alerts[/Telegram · Discord/]
 
-    subgraph Services["Services, gRPC Endpoint :50051 on every instance, one database per service"]
-        subgraph GameCluster["Game Service ×3"]
-            Game1[game-service-1]
-            Game2[game-service-2]
-            Game3[game-service-3]
-            GameDB[(Game PostgreSQL<br/>LISTEN / NOTIFY event relay)]
-        end
+    subgraph Services["Services · gRPC Endpoint :50051 on every instance · one database per service"]
+        Game[Game ×3<br/>LISTEN/NOTIFY event relay]
         Exam[Exam ×2]
-        World[World ×2]
-        Zombie[Zombie ×2]
         Resource[Resource ×2]
         Base[Base ×2]
         Player[Player ×2]
         Crafting[Crafting ×2]
+        World[World ×2]
+        Zombie[Zombie ×2]
+    end
+
+    subgraph Data["Databases · each one on 3 nodes"]
+        PG[("PostgreSQL, for each database DB: pg-router named DB<br/>:5432 → primary DB-1 · :5433 → standbys DB-2, DB-3<br/>streaming replication · failover · fencing · :8008 /status<br/>game-db · exam-db · resource-db · base-db · player-db · crafting-db")]
+        Mongo[("MongoDB replica sets<br/>world-rs: world-mongo-1..3<br/>zombie-rs: zombie-mongo-1..3")]
+        Seeds[/db-scripts: schema + seed<br/>once, on the initial primary/]
+    end
+
+    subgraph Warehouse["Data Warehouse"]
+        ETL[etl-service :3040<br/>every 5 min · POST /etl/run]
+        DW[(dw-db · PostgreSQL<br/>star schema dw: facts + dimensions)]
     end
 
     subgraph Monitoring["Monitoring · profile monitoring"]
         Prometheus[Prometheus :9090]
         Promtail[Promtail]
         Loki[Loki]
-        Grafana[Grafana :3000]
+        Grafana[Grafana :3000<br/>Overview · Broker · Logs · Analytics]
     end
+    LogsInit[logs-init<br/>makes the volume writable, then exits]
     Logs[(logs volume<br/>/var/log/kahoots/instanceId.log)]
 
     Client -->|REST + Bearer JWT| Gateway
-    Client -->|1. POST /ws/negotiate| Gateway
-    Client -.->|2. WebSocket, direct, to the session owner| Game1
+    Client -->|"(1) POST /ws/negotiate"| Gateway
+    Client -.->|"(2) WebSocket, direct, to the session owner"| Game
+
+    Gateway <-->|GET responses · tokens| V1
+    Gateway <--> V2
+    Gateway <--> V3
 
     Gateway ==>|Broker.Call| Broker
     Broker ==>|Endpoint.Handle · Endpoint.Deliver| Services
-    Services ==>|Broker.Call · Broker.Publish| Broker
+    Services ==>|Broker.Call · Broker.Publish · start a saga| Broker
+    Broker --- Saga
+    Saga ==>|steps + compensations, Idempotency-Key| Services
     Broker --- Store
+    Saga --- Store
 
     Broker -->|instances, subscribers · DELETE on breaker trip| SD
     Services <-->|register + heartbeat · SD polls /status| SD
     SD -->|alerts| Alerts
 
-    Game1 <--> GameDB
-    Game2 <--> GameDB
-    Game3 <--> GameDB
+    Game & Exam & Resource & Base & Player & Crafting -->|:5432| PG
+    World & Zombie --> Mongo
+    Seeds -.-> PG
+    PG -.->|:5433, standbys only| ETL
+    Mongo -.->|secondaryPreferred| ETL
+    ETL --> DW
 
+    LogsInit -.-> Logs
     Services -.->|JSON logs| Logs
     Gateway -.->|reads for /admin/logs/download| Logs
     Logs -->|tailed by| Promtail
@@ -103,8 +129,10 @@ graph TD
     SD -->|/prometheus/targets| Prometheus
     Services -->|/metrics scraped| Prometheus
     Broker -->|/metrics scraped| Prometheus
+    PG -->|:8008/metrics| Prometheus
     Prometheus --> Grafana
     Loki --> Grafana
+    DW -->|Analytics| Grafana
 ```
 
 **Legend**
@@ -112,20 +140,48 @@ graph TD
 - **A request** (`Broker.Call`).
   - The client's REST request reaches the gateway on **8080**, and the gateway turns it into a `Broker.Call` to the `<prefix>-service` queue (`/world/rooms` → `world-service`, path `/rooms`).
   - The broker calls `Endpoint.Handle` on **one** instance. That instance replays the request on its own HTTP routes, and the reply goes back the same way.
-  - Services call each other only like this; `http://gateway:8081` is gone.
-- **An event** (`Broker.Publish`). A service publishes it to a topic (`Broker.Publish`). The broker writes it to SQLite before it acknowledges, then sends it **once to every subscriber service**, to one instance of each (`Endpoint.Deliver`).
+  - Services call each other only like this. Routes only other services call (contract §12) answer `404` at the gateway.
+- **An event** (`Broker.Publish`). A service publishes it to a topic. The broker writes it to SQLite before it acknowledges, then sends it **once to every subscriber service**, to one instance of each (`Endpoint.Deliver`).
 - **Inside the broker:**
   - **Load balancing:** least load wins (the SD heartbeat load plus the broker's own in-flight calls).
   - **Circuit breaker:** per instance. 3 failures in 3.5 × the timeout and the broker asks Service Discovery to remove the instance (`DELETE`), and Service Discovery quarantines it.
-  - **Reroute:** a failed request is retried on another instance (always when the instance was unreachable; after a timeout or 5xx only when the request is safe to repeat). It is retried at most twice, with `X-Rerouted-From` on the reply.
+  - **Reroute:** a failed request is retried on another instance (always when the instance was unreachable; after a timeout or 5xx only when the request is safe to repeat), at most twice, with `X-Rerouted-From` on the reply.
   - **Retries:** a failed delivery is retried after 1, 2, 4, 8 s, then it goes to the **dead letter channel** (`GET /dlq`).
+  - **Saga coordinator (Lab 5):** runs each step as a `Broker.Call` with `Idempotency-Key: {sagaId}:{step}`. A business error (4xx), or a technical one after the reroutes, makes it compensate the completed steps in reverse order (`{sagaId}:{step}:compensate`). A compensation that is impossible (409) ends the saga `FAILED` and goes to the dead letter channel. The initiator learns the end from `saga.completed` / `saga.compensated`. The state is in SQLite, so a restarted broker continues the saga.
+- **Cache (Lab 5).** Three Valkey nodes with no replication: the gateway's ring (160 virtual nodes per node) decides which node owns a key, so stopping one node only loses its share of the keys, and they are refilled from the services. Keys: `resp:v{ver}:{service}:{path}?{query}[:u{userId}]` (GET responses), `auth:tok:{sha256}`, `auth:user:{userId}`, `auth:revoked:{jti}` (a token revoked at logout). A successful write through the gateway on `/{prefix}/...` runs `INCR ver:{prefix}-service`, so every cached response of that service is skipped from then on.
+- **Databases (Lab 5).** Each PostgreSQL database is `<db>-1` (primary at the first start), `<db>-2`, `<db>-3` (standbys, cloned with `pg_basebackup`, streaming the WAL), behind **pg-router `<db>`**. The router checks every node every 2 s. After 3 failed checks of the primary it promotes the standby with the smallest lag, re-points the other standby and closes the old connections, which takes about 6–10 s. An old primary that comes back is **fenced** until it is re-cloned. The MongoDB databases are replica sets `world-rs` / `zombie-rs` (3 members, `readPreference=primaryPreferred`): the members elect a new PRIMARY themselves.
+- **Seeds (Lab 2, now drawn).** `db-scripts/<service>` holds each database's schema and seed. They run once, when the initial primary creates its data directory; the services also run them on startup (`SEED_ON_START`), under an advisory lock, and they only insert into empty tables.
+- **Data warehouse (Lab 5).** etl-service reads only the replicas, only rows whose `updated_at` / `created_at` is after the last run, and upserts them into `dw-db` by `source_id`. It never writes to a source and never deletes from the warehouse.
 - **Dotted arrow from Client:** the only traffic that bypasses the broker. After `POST /ws/negotiate`, the client opens the WebSocket directly on the Game instance that owns its session (ports 3101–3103). Game relays events between its instances through PostgreSQL `LISTEN/NOTIFY`.
 - **Service Discovery** knows every instance: its address, `metadata.grpcPort` and the `topics` it subscribed to. It polls each instance's `GET /status` and sends `WARN`/`CRITICAL` alerts to Telegram and Discord.
 - **Monitoring** (`--profile monitoring`):
-  - Prometheus scrapes `GET /metrics` on every instance it finds through `GET /prometheus/targets`, plus the broker.
-  - Every container (services, broker, Service Discovery, gateway) also writes its JSON logs to the shared `logs` volume (dotted arrows). Promtail ships them to Loki, and the gateway's `GET /admin/logs/download` (admin only) returns them filtered.
-  - Grafana shows both.
-- **`×2` / `×3`:** the replicas in `deploy/docker-compose.yml` (`<NAME>_REPLICAS`, default 2; Game is 3 named instances). The replicas of a service share its database, and each has its own `instanceId`.
+  - Prometheus scrapes `GET /metrics` on every instance it finds through `GET /prometheus/targets`, the broker and the pg-routers (`pg_node_up`, `pg_replication_lag_bytes`, `pg_failovers_total`).
+  - **logs-init** runs once at startup and makes the shared `logs` volume writable. Then every container (services, broker, Service Discovery, gateway, routers) writes its JSON logs there (dotted arrows). Promtail ships them to Loki, and the gateway's `GET /admin/logs/download` (admin only) returns them filtered.
+  - Grafana shows the metrics, the logs and the warehouse (Analytics).
+- **`×2` / `×3`:** the replicas in `deploy/docker-compose.yml` (`<NAME>_REPLICAS`, default 2; Game is 3 named instances). The replicas of a service share its database (through its router), and each has its own `instanceId`.
+
+**Saga `craft`, with its compensation** (contract "Saga"; `base-upgrade` is the same: step 1 is Resource's consume, step 2 is `POST /bases/{id}/upgrades/{upgradeId}/apply` on Base):
+
+```mermaid
+flowchart LR
+    Start["crafting-service<br/>craft PENDING"] -->|start saga craft| S1
+    subgraph Coordinator["Saga coordinator in the Message Broker · state saved in SQLite at every step"]
+        S1["Step 1: Resource<br/>POST /resources/consume"] --> S2["Step 2: Player<br/>POST /players/{playerId}/inventory"]
+        S2 -->|"4xx, or no instance after the reroutes"| F["Step 2 failed"]
+        F --> K1["Compensate step 1<br/>POST /resources/consume/{actionId}/revert"]
+    end
+    S2 -->|2xx| Done(["COMPLETED<br/>saga.completed · item.crafted"])
+    K1 --> Comp(["COMPENSATED<br/>saga.compensated · craft FAILED"])
+    K1 -.->|"409: compensation impossible"| Failed(["FAILED<br/>compensation in the dead letter channel"])
+```
+
+- **Steps and compensations are idempotent.** The same `Idempotency-Key` twice gives the same answer and no second effect. A compensation for a step that never arrived answers `200` with no effect, never `404`. Resource also refuses that step if it arrives later (`409 ACTION_REVERTED`).
+- **Sagas and internal routes** (only the coordinator calls them; the gateway answers `404`):
+
+| Saga | Initiator | Steps, in order | Compensations |
+|---|---|---|---|
+| `craft` | crafting-service | 1. Resource `POST /resources/consume` · 2. Player `POST /players/{playerId}/inventory` | 1. `POST /resources/consume/{actionId}/revert` · 2. `POST /players/{playerId}/inventory/grants/{grantId}/revert` |
+| `base-upgrade` | base-service | 1. Resource `POST /resources/consume` · 2. Base `POST /bases/{id}/upgrades/{upgradeId}/apply` | 1. `POST /resources/consume/{actionId}/revert` · 2. – (last step) |
 
 **Events: who publishes what to whom** (the topic catalog, contract §4):
 
@@ -139,6 +195,8 @@ graph LR
     PlayerP[player-service] --> T6((player.leveled-up))
     GameP[game-service] --> T7((game.session-ended))
     ZombieP[zombie-service] --> T8((zombie.type-changed))
+    SagaP[message-broker<br/>saga coordinator] --> T9((saga.completed))
+    SagaP --> T10((saga.compensated))
 
     T1 -->|unlock the wing| WorldS[world-service]
     T1 -->|achievement, XP| PlayerS[player-service]
@@ -151,9 +209,13 @@ graph LR
     T6 -->|recorded once per event| BaseS[base-service]
     T7 --> PlayerS
     T8 -->|drops its zombie-type cache| GameS
+    T9 -->|"craft COMPLETED · item.crafted"| CraftingS
+    T9 -->|"upgrade APPLIED · base.upgraded"| BaseS
+    T10 -->|craft FAILED| CraftingS
+    T10 -->|upgrade CANCELLED| BaseS
 ```
 
-A topic is named `<publisher>.<event in past tense>`, and its payload is JSON. Delivery is at-least-once, so every handler is idempotent on `event_id`.
+A topic is named `<publisher>.<event in past tense>`, and its payload is JSON. Delivery is at-least-once, so every handler is idempotent on `event_id`. The two saga topics (Lab 5) go to every service that starts sagas; each keeps only the events whose `initiator` is itself.
 
 **Requests (`Broker.Call`, the caller waits for the reply):**
 
@@ -165,7 +227,8 @@ A topic is named `<publisher>.<event in past tense>`, and its payload is JSON. D
 | Game | Resource | Gather / steal resources (with the `actionId` as `Idempotency-Key`) |
 | Game | Player | Validate players, change XP |
 | Resource | Player, World | Does the player exist; which resource a node gives |
-| Base | Resource | Pay for upgrades, barricades, facilities (`POST /resources/consume`, `Idempotency-Key` = the action) |
+| Base | Resource | Pay for barricades, facilities, storage, decorations (`POST /resources/consume`, `Idempotency-Key` = the action). From Lab 5 a base upgrade is the saga `base-upgrade` instead |
+| Saga coordinator (broker) | Resource, Player, Base | The steps and compensations of `craft` and `base-upgrade` (`Idempotency-Key: {sagaId}:{step}`) |
 | Base | Player, World | Does the player exist; does the room exist (barricades) |
 | Crafting | Resource, Player, Exam, World | Spend materials, hand over the item, check a passed course and a location |
 
@@ -181,6 +244,21 @@ A topic is named `<publisher>.<event in past tense>`, and its payload is JSON. D
 | `player.leveled-up` | Player | Crafting, Base | – (new) |
 | `game.session-ended` | Game | Player | – (new) |
 | `zombie.type-changed` | Zombie | Game | – (new: Game drops its zombie-type cache) |
+| `saga.completed` | Message Broker | Crafting, Base (the initiator) | – (Lab 5: the saga ended, every step done) |
+| `saga.compensated` | Message Broker | Crafting, Base (the initiator) | – (Lab 5: a step failed and the completed ones were undone) |
+
+### Lab 5 at a glance
+
+| Grade | What | Who | Where | How to show it |
+|---|---|---|---|---|
+| 2 | The diagram has the components that were implemented but not drawn: `logs-init`, the `db-scripts` seeds, the alerts, the WebSocket negotiation | Vladlen (each owner sent his) | this section | The diagram above and its legend |
+| 3 | The diagram has the data warehouse, the ETL, the cache, the saga coordinator and every database's replicas | Vladlen, Gabriel (DW/ETL), Mihai (cache) | this section | The diagram, the saga diagram, the topic flow |
+| 4 | Data warehouse in the compose (`dw-db`) + ETL from every database, from the replicas only | Gabriel (each owner wrote his extractor) | `etl-service`, `deploy/docker-compose.yml` | `curl -X POST localhost:3040/etl/run`, then Grafana → **Analytics** |
+| 5 | Replication + failover, 3 nodes per database (2 replicas) | Vladlen (template), Alexandru, Gabriel, Mihai (Mongo) | [`deploy/postgres/README.md`](./deploy/postgres/README.md), `pg-router` | `docker stop deploy-resource-db-1-1`: Resource answers again within ~10 s and `curl localhost:8008/status` shows the new primary. The same on a Mongo PRIMARY |
+| 6 | Cache (Valkey) for GET responses and authentication data | Mihai, Gabriel (invalidation at logout) | gateway | `X-Cache: MISS` then `HIT`; a `PUT` invalidates; a token is refused after logout |
+| 7 | Consistent hashing + sharding of the cache | Mihai | gateway, `docs/lab5-consistent-hashing.md` | `GET /admin/cache/ring`; stop `cache-2`: no errors, only its keys miss |
+| 8–9 | Long-running sagas with a coordinator in the Message Broker | Alexandru (coordinator), Gabriel (craft), Vladlen (base-upgrade) | `message-broker`, Crafting, Player, Resource, Base | A craft that succeeds; a craft compensated with Player stopped; the broker restarted in the middle of a saga. A base upgrade without enough resources ends `CANCELLED`, nothing spent |
+| 10 | Postman collection, diagrams, DockerHub, new endpoints and DTOs in the READMEs | Gabriel (Postman), Vladlen (README, diagram), everyone (images `5.0.0`) | `postman/`, section 7, section 5 | The Lab 5 collection passes in the Runner; every image has `5.0.0` and `latest` |
 
 ### Lab 4 at a glance
 
@@ -208,6 +286,9 @@ Two languages for the services, **Go** (Game, Exam) and **TypeScript/JavaScript 
 | **API Gateway** | Python 3.12 | FastAPI + grpcio + PyJWT | REST for clients (+ WebSocket negotiation); `Broker.Call` (gRPC) to every service | The single entry point, written in the lab's required language. It checks the JWT and the limits, then hands the request to the broker. Async I/O suits a component that mostly waits. It also serves the admins' logs download. |
 | **Service Discovery** | Python 3.12 | FastAPI + httpx | REST (registration, heartbeats, lookups, `GET /topics`, `GET /prometheus/targets`); alerts to Telegram/Discord | The registry every instance reports to: addresses, gRPC ports, topics, load. It polls `/status`, quarantines instances removed by a circuit breaker, and is Prometheus' source of targets. Same stack as the gateway. |
 | **Message Broker** | Python 3.12 | grpcio (`Broker` service) + FastAPI (admin API) + SQLite | gRPC `Broker.Call` / `Broker.Publish` in, `Endpoint.Handle` / `Endpoint.Deliver` out; admin REST on 8600 | The banned language, which the lab allows for the broker. Same language as the gateway, so the Lab 3 load balancer and circuit breaker were **moved** into it, not rewritten. Thread-per-Request: every call and every delivery runs on its own thread, so one slow instance never blocks the others. SQLite (stdlib) makes the queues durable with no extra server. |
+| **pg-router** (Lab 5) | Python 3.12 | asyncio + asyncpg | TCP: 5432 → the primary, 5433 → the standbys; HTTP `/status`, `/metrics` on 8008 | One small router per PostgreSQL database, named like the old database, so no service changes its `DATABASE_URL`. It copies bytes without parsing the protocol, checks every node every 2 s and promotes a standby with `pg_promote()`. Simpler to read and to demo than Patroni + etcd; the price is that the router is a single point of failure. |
+| **Cache** (Lab 5) | – | Valkey (×3) | the gateway's consistent hashing ring picks the node of each key | Valkey is the open-source Redis fork: same commands and client libraries. Three independent nodes plus a ring in the gateway show sharding without Redis Cluster's extra moving parts. |
+| **Data warehouse** (Lab 5) | TypeScript 5 | Node.js 22 (etl-service), PostgreSQL 16 (`dw-db`) | reads the replicas (`<db>:5433`, Mongo `secondaryPreferred`), writes `dw-db` | A star schema in plain PostgreSQL is enough for the Analytics dashboard. Reading the standbys keeps the extraction off the primaries. |
 | **Monitoring** | – | Prometheus 2.55, Loki + Promtail 3.3, Grafana 11.4 | Prometheus scrapes `/metrics` (targets from Service Discovery); Promtail ships the shared log files to Loki | Standard, zero-code stack: new replicas are scraped as soon as they register, and every service's logs are searchable in one place. |
 | Player Service | TypeScript 5 | Node.js 22 + Express 5, PostgreSQL 16 | REST from the gateway via the broker (gRPC); events: publishes `player.leveled-up`, subscribes to `exam.passed`, `base.upgraded`, `item.crafted`, `game.session-ended` | Many small request/response calls. Trades move items between two players atomically: one PostgreSQL transaction locks both inventories, checks ownership and swaps. Issues the login JWT the gateway accepts. |
 | Game Service | Go 1.22 | net/http + gorilla/websocket, PostgreSQL 16 | WebSockets (direct, negotiated by the gateway); REST from the gateway via the broker; gRPC to other services; events on topics, plus `LISTEN/NOTIFY` between its instances | Many concurrent timers and live connections; goroutines keep them cheap. WebSockets push action progress, cycle changes and zombie events. |
@@ -478,6 +559,28 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | Player | `GET /players/{playerId}` | 200 = exists, 404 = not found |
 | World | `GET /nodes/{nodeId}` | `200 { "id": "uuid", "resourceTypeId": "wood" }`, 404 = not found |
  
+#### Lab 5 updates
+
+- **Database:** `resource-db` is a pg-router in front of `resource-db-1..3` (`deploy/postgres/README.md`); `DATABASE_URL` is unchanged. After a failover the service answers again within about 6 s.
+- **Saga participant** (`craft`, `base-upgrade`): step 1 of both is `POST /resources/consume`, which now also takes its `actionId` from the coordinator's `Idempotency-Key` header when the body has none. A consume whose revert was recorded first answers `409 ACTION_REVERTED` and is never applied.
+- **New internal route** (the gateway answers `404`, contract §12):
+
+| Method | Path | Request body | Success response |
+|---|---|---|---|
+| POST | `/resources/consume/{actionId}/revert` | – (`Idempotency-Key: {sagaId}:{step}:compensate`, logged) | `200 RevertResult`, also for a repeat and for an unknown `actionId` (`409 NOT_REVERTIBLE` when the action is not a consume) |
+
+```json
+RevertResult {
+  "actionId": "string, the consume",
+  "reverted": true,
+  "duplicate": false,
+  "revert": { "actionId": "revert:<actionId>", "kind": "revert", "playerId": "uuid", "nodeId": null, "source": "<actionId>",
+              "items": [ { "resourceTypeId": "wood", "amount": 10 } ], "createdAt": "ISO 8601" }
+}
+```
+
+`reverted: false` with `items: []` = the consume never arrived (nothing given back, a late consume is refused).
+
 ### 5.5 Base Service (owner: Mitu Vladlen) — port 3006
 
 #### Lab 2 updates
@@ -556,6 +659,29 @@ Every REST call goes through the gateway: clients use `http://localhost:8080/<se
 | Resource | `POST /resources/consume { actionId, playerId, items, reason }` | `201`/`200`, `409 INSUFFICIENT_RESOURCES` |
 | Resource | `POST /resources/grant { actionId, playerId, items, source }` | `201`/`200` |
  
+#### Lab 5 updates
+
+- **Database:** `base-db` is a pg-router in front of `base-db-1..3` (`deploy/postgres/README.md`); `DATABASE_URL` is unchanged.
+- **Upgrade as the saga `base-upgrade`:** `POST /bases/{id}/upgrades` stores a `PENDING` upgrade, then the saga runs Resource's consume and Base's apply. `saga.completed` → `APPLIED` and `base.upgraded`; `saga.compensated` → `CANCELLED` (the consume was reverted, nothing lost). The Lab 4 `POST /bases/{id}/upgrade` still works.
+
+| Method | Path | Request body | Success response |
+|---|---|---|---|
+| POST | `/bases/{id}/upgrades` | `{ "actionId": "uuid" }` (the `upgradeId`) | `200 Upgrade` (APPLIED) · `202 Upgrade` (PENDING after 5 s, poll the GET) · `409 { error, upgrade }` (CANCELLED / FAILED, e.g. `INSUFFICIENT_RESOURCES`; also `UPGRADE_IN_PROGRESS`) · `422 MAX_LEVEL_REACHED` |
+| GET | `/bases/{id}/upgrades/{upgradeId}` | – | `200 Upgrade` |
+| POST | `/bases/{id}/upgrades/{upgradeId}/apply` | – (internal: the saga's last step; the gateway answers `404`) | `200 { upgrade, base, duplicate }` · `409 UPGRADE_CANCELLED` / `LEVEL_CHANGED` |
+
+```json
+Upgrade {
+  "upgradeId": "string", "baseId": "string", "playerId": "string", "sagaId": "uuid",
+  "status": "PENDING | APPLIED | CANCELLED | FAILED",
+  "fromLevel": 1, "toLevel": 2, "cost": [ { "resourceTypeId": "wood", "amount": 10 } ],
+  "failure": null | { "step": "resource.consume", "status": 409, "code": "INSUFFICIENT_RESOURCES", "message": "string", "details": "any" },
+  "createdAt": "ISO 8601", "updatedAt": "ISO 8601", "duplicate": false
+}
+```
+
+New variable: `SAGA_WAIT_MS` (default `5000`), how long `POST /bases/{id}/upgrades` waits before answering `202`.
+
 ### 5.6 World Service (owner: Mihai Mustea) — port 3011
 
 Bodies are JSON. Errors use `{ "error": "CODE", "message": "text" }` (`VALIDATION_ERROR` 400, `NOT_FOUND` 404, `REQUEST_TIMEOUT` 408, `EXAM_NOT_VERIFIED` 422, `TOO_MANY_REQUESTS` 429, `INTERNAL_ERROR` 500, `UPSTREAM_ERROR` 502).
@@ -970,6 +1096,8 @@ git submodule update --init --recursive
 | Resource Service | [mituvladlen/resource-service](https://hub.docker.com/r/mituvladlen/resource-service) `:4.0.0` | [resource-service](https://github.com/kahoots-undead-faf-team-6/resource-service) (private) |
 | Base Service | [mituvladlen/base-service](https://hub.docker.com/r/mituvladlen/base-service) `:4.0.0` | [base-service](https://github.com/kahoots-undead-faf-team-6/base-service) (private) |
 | Crafting Service | [gabriel120405/crafting-service](https://hub.docker.com/r/gabriel120405/crafting-service) `:4.0.0` | [crafting-service](https://github.com/kahoots-undead-faf-team-6/crafting-service) (private) |
+| **pg-router** (Lab 5) | `mituvladlen/pg-router:5.0.0` (first published at the Lab 5 release) | this repo, [`deploy/postgres/pg-router`](./deploy/postgres/pg-router) |
+| **etl-service** (Lab 5) | `gabriel120405/etl-service:5.0.0` (first published at the Lab 5 release) | [etl-service](https://github.com/kahoots-undead-faf-team-6/etl-service) (private) |
 
 `deploy/docker-compose.yml` pulls these `:4.0.0` images. Each repo's CI pushes `:4.0.0` and `:latest` when `development` is merged into `main` for the Lab 4 release; the older tags (`:3.0.0`, `:2.0.0`) stay on DockerHub.
  
@@ -1210,3 +1338,8 @@ Check them without the stack: `docker run --rm --entrypoint promtool -v "$PWD/de
   - High availability: a failed request is rerouted to another instance (always when it never reached the service, after a timeout or 5xx only when it is safe to repeat), and least-load balancing (SD heartbeat load + the broker's in-flight calls).
   - Resource and Base on gRPC: `Endpoint` server, every call through `Broker.Call` (with `Idempotency-Key`), `resource.depleted` and `base.upgraded` events, `player.leveled-up` handled once per event, `/metrics`, `LOG_DIR`.
   - New architecture diagram, topic flow, requests-vs-events tables and "Lab 4 at a glance" in this README.
+- **Lab 5 (v5.0.0), replication, cache, data warehouse, sagas:**
+  - Every PostgreSQL database on three nodes (primary + two streaming standbys) behind a pg-router with automatic failover, fencing of the old primary and `/status` / `/metrics`; the template and the demo are in `deploy/postgres/README.md`. resource-db and base-db first; MongoDB as replica sets.
+  - Valkey cache in the gateway with consistent hashing over three nodes; data warehouse `dw-db` filled by etl-service from the replicas.
+  - Sagas `craft` and `base-upgrade` coordinated by the Message Broker; Resource's `POST /resources/consume/{actionId}/revert` and Base's `POST /bases/{id}/upgrades` (`PENDING` → `APPLIED` / `CANCELLED`).
+  - New architecture diagram (with the components that were missing), saga diagram and "Lab 5 at a glance" in this README.
